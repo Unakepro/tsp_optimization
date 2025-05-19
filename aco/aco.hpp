@@ -9,11 +9,6 @@
 const double Q = 100;
 
 
-inline int idx(int i, int j, int n) {
-    return i * n + j;
-}
-
-
 void generate_path(const std::vector<City>& cities, std::vector<City>& path, const std::vector<double>& old_pheromons, const std::vector<double>& eta_matrix, int alpha, int beta) {
     size_t n = cities.size();
 
@@ -63,27 +58,6 @@ void precompute_matrix(const std::vector<City>& cities, std::vector<double>& dis
             else {
                 distance_matrix[idx(i, j, n)] = 0;
                 eta_matrix[idx(i, j, n)] = 0;
-            }
-        }
-    }
-}
-
-
-void apply_two_opt(std::vector<City>& path, const std::vector<double>& distance_matrix) {
-    bool improved = true;
-    size_t n = path.size();
-
-    while (improved) {
-        improved = false;
-        for (size_t i = 1; i < n - 2; ++i) {
-            for (size_t j = i + 1; j < n - 1; ++j) {                
-                double d1 = distance_matrix[idx(path[i - 1].id-1, path[i].id-1, n)] + distance_matrix[idx(path[j].id-1, path[j+1].id-1, n)];
-                double d2 = distance_matrix[idx(path[i - 1].id-1, path[j].id-1, n)] + distance_matrix[idx(path[i].id-1, path[j+1].id-1, n)];
-                
-                if (d2 < d1) {
-                    std::reverse(path.begin() + i, path.begin() + j + 1);
-                    improved = true;
-                }
             }
         }
     }
