@@ -64,9 +64,6 @@ void precompute_distance(const std::vector<City>& cities, std::vector<double>& d
 
 
 void genetic_optimization(std::vector<City>& cities, double mutation_rate, size_t size, size_t steps, bool use_two_opt=false) {    
-    if(size % 2 != 0) {
-        throw std::logic_error("population should be divisible by 2");
-    }
 
     std::vector<double> distance_matrix(cities.size() * cities.size());
     precompute_distance(cities, distance_matrix);
