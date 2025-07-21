@@ -66,5 +66,25 @@ void apply_two_opt(std::vector<City>& path, const std::vector<double>& distance_
     }
 }
 
+void readfile(std::vector<City>& cities, std::string filename) {
+    std::string line;
+    bool reading_coords = false;
+
+    std::ifstream file(filename);
+    while (std::getline(file, line)) {
+        if (line.find("NODE_COORD_SECTION") != std::string::npos) {
+            reading_coords = true;
+            continue;
+        }
+        if (line.find("EOF") != std::string::npos) break;
+        if (reading_coords) {
+            std::istringstream iss(line);
+            City c;
+            iss >> c.id >> c.point.first >> c.point.second;
+            cities.push_back(c);
+        }
+    }
+}
+
 
 #endif
