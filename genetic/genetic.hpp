@@ -35,15 +35,24 @@ std::vector<City> crossover(std::vector<std::vector<City>>& population, int inde
         }
     }
 
-    assert(not_used.empty());
 
     return output;
 }
 
 void mutation(std::vector<City>& order) {
     std::uniform_int_distribution<> city_swap(0, order.size()-1);
- 
-    std::swap(order[city_swap(gen)], order[city_swap(gen)]);
+    std::uniform_real_distribution<> mutation_type(0.0, 1.0);
+    
+    if(mutation_type(gen) < 0.7) {
+        std::swap(order[city_swap(gen)], order[city_swap(gen)]);
+    } else {
+        int i = city_swap(gen);
+        int j = city_swap(gen);
+        if (i > j) std::swap(i, j);
+        if (j > i) {
+            std::reverse(order.begin() + i, order.begin() + j + 1);
+        }
+    }
 }
 
 void precompute_distance(const std::vector<City>& cities, std::vector<double>& distance_matrix) {
@@ -62,6 +71,22 @@ void precompute_distance(const std::vector<City>& cities, std::vector<double>& d
     }
 }
 
+double total_cost_fast(const std::vector<City>& cities, const std::vector<double>& distance_matrix) {
+    double total_distance = 0;
+    size_t n = cities.size();
+    
+    for(size_t i = 1; i < n; ++i) {
+        int id1 = cities[i-1].id - 1; 
+        int id2 = cities[i].id - 1;
+        total_distance += distance_matrix[idx(id1, id2, n)];
+    }
+    
+    int last_id = cities[n-1].id - 1;
+    int first_id = cities[0].id - 1;
+    total_distance += distance_matrix[idx(last_id, first_id, n)];
+    
+    return total_distance;
+}
 
 void genetic_optimization(std::vector<City>& cities, double mutation_rate, size_t size, size_t steps, bool use_two_opt=false) {    
 
@@ -80,39 +105,58 @@ void genetic_optimization(std::vector<City>& cities, double mutation_rate, size_
     }
 
     auto currBest = cities;
-    int currDistance = total_cost(currBest);
+    double currDistance = total_cost_fast(currBest, distance_matrix);
+
+    double original_mutation_rate = mutation_rate;
+    int  stagnation_counter = 0;
+    double prev_best = currDistance;
 
     for(size_t i = 0; i < steps; ++i) {
         std::shuffle(population.begin(), population.end(), gen);
 
         if(use_two_opt) {
-            for(size_t j = 0; j < population.size() / 2; ++j) {
+            for(size_t j = 0; j < population.size() / 4; ++j) {  
                 apply_two_opt(population[j], distance_matrix);
             }
         }
 
-        std::sort(population.begin(), population.end(), [](std::vector<City> lhs, std::vector<City> rhs){
-            return total_cost(lhs) < total_cost(rhs);
+        std::sort(population.begin(), population.end(), [&distance_matrix](const std::vector<City>& lhs, const std::vector<City>& rhs){
+            return total_cost_fast(lhs, distance_matrix) < total_cost_fast(rhs, distance_matrix);
         });
          
-        if(currDistance > total_cost(population[0])) {
+        double current_best_cost = total_cost_fast(population[0], distance_matrix);
+        if(currDistance > current_best_cost) {
             currBest = population[0];
-            currDistance = total_cost(currBest);
+            currDistance = current_best_cost;
+            stagnation_counter = 0;
+        } else {
+            stagnation_counter++;
         }
+        
+        if (stagnation_counter > 20) {
+            mutation_rate = std::min(0.4, original_mutation_rate * 2.0);
+        } else if (current_best_cost < prev_best) {
+            mutation_rate = std::max(0.05, mutation_rate * 0.95);
+        }
+        prev_best = current_best_cost;
         
         std::vector<std::vector<City>> selection;
         std::uniform_int_distribution<> dist(0, population.size()-1);
 
-        for(size_t j = 0; j < size / 2; ++j) {
-            int cand1 = dist(gen);
-            int cand2 = dist(gen);
+        size_t elite_count = std::max(1, static_cast<int>(size * 0.1));
+        for(size_t j = 0; j < elite_count; ++j) {
+            selection.push_back(population[j]);
+        }
 
-            int parent1 = total_cost(population[cand1]) <= total_cost(population[cand2]) ? cand1 : cand2;
+        for(size_t j = elite_count; j < size / 2; ++j) {
+            int cand1 = dist(gen) % (population.size() / 2); 
+            int cand2 = dist(gen) % (population.size() / 2);
+            int parent1 = total_cost_fast(population[cand1], distance_matrix) <= total_cost_fast(population[cand2], distance_matrix) ? cand1 : cand2;
 
-            cand1 = dist(gen);
-            cand2 = dist(gen);
+            cand1 = dist(gen) % (population.size() / 2);
+            cand2 = dist(gen) % (population.size() / 2);
+            int parent2 = total_cost_fast(population[cand1], distance_matrix) <= total_cost_fast(population[cand2], distance_matrix) ? cand1 : cand2;
             
-            int parent2 = total_cost(population[cand1]) <= total_cost(population[cand2]) ? cand1 : cand2;
             auto result = crossover(population, parent1, parent2);
 
             int chanceThreshold = static_cast<int>(100 * mutation_rate);
@@ -133,9 +177,10 @@ void genetic_optimization(std::vector<City>& cities, double mutation_rate, size_
 
         population.insert(population.end(), selection.begin(), selection.end());
 
-        std::cout << "Best so far " << currDistance << std::endl;
+        if(i % 100 == 0) { 
+            std::cout << "Generation " << i << " - Best: " << currDistance << " - Mutation Rate: " << mutation_rate << std::endl;
+        }
     }
-
 
     cities = currBest;
 }
