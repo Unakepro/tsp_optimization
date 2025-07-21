@@ -157,5 +157,5 @@ int main() {
 
     run_tests_aco("aco_results_small" , small_datasets, 20, 1, 5, 0.5, 300);
     run_tests_sa("sa_results_small" , small_datasets, 10000, 1e-3, 0.99999, 1000000);
-    run_tests_genetic("ga_results_small" , small_datasets, 0.1, 100, 40000);
+    run_tests_genetic("ga_results_small" , small_datasets, 0.1, 100, 1000);
 }
