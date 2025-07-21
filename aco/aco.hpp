@@ -64,7 +64,7 @@ void precompute_matrix(const std::vector<City>& cities, std::vector<double>& dis
 }
 
 
-void aco(std::vector<City>& cities, size_t m, double alpha, double beta, double po, int epochs) {
+void aco(std::vector<City>& cities, size_t m, double alpha, double beta, double po, int epochs, bool use_two_opt = false) {
     size_t n = cities.size();
 
     std::vector<double> pheromons(n * n, 1);
@@ -110,13 +110,18 @@ void aco(std::vector<City>& cities, size_t m, double alpha, double beta, double 
     
         }
 
-        apply_two_opt(ant_pathes[0], distance_matrix);
+        if(use_two_opt) {
+            apply_two_opt(ant_pathes[0], distance_matrix);
+        }
 
         if(total_cost(curr_best) > total_cost(ant_pathes[0])) {
             curr_best = ant_pathes[0];
         }
 
-        std::cout << "Best so far " << total_cost(curr_best) << std::endl;
+        if(i % 50 == 0) {
+        std::cout << "Iteration: " << i << "  Best so far " << total_cost(curr_best) << std::endl;
+
+        }
     }
 
     cities = curr_best;
