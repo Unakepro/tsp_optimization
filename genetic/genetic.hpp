@@ -124,10 +124,6 @@ void genetic_optimization(std::vector<City>& cities, double mutation_rate, size_
     auto currBest = cities;
     double currDistance = total_cost_fast(currBest, distance_matrix);
 
-    double original_mutation_rate = mutation_rate;
-    int  stagnation_counter = 0;
-    double prev_best = currDistance;
-
     for(size_t i = 0; i < steps; ++i) {
         std::shuffle(population.begin(), population.end(), gen);
 
@@ -145,18 +141,8 @@ void genetic_optimization(std::vector<City>& cities, double mutation_rate, size_
         if(currDistance > current_best_cost) {
             currBest = population[0];
             currDistance = current_best_cost;
-            stagnation_counter = 0;
-        } else {
-            stagnation_counter++;
         }
-        
-        if (stagnation_counter > 20) {
-            mutation_rate = std::min(0.4, original_mutation_rate * 2.0);
-        } else if (current_best_cost < prev_best) {
-            mutation_rate = std::max(0.05, mutation_rate * 0.95);
-        }
-        prev_best = current_best_cost;
-        
+
         std::vector<std::vector<City>> selection;
         std::uniform_int_distribution<> dist(0, population.size()-1);
 

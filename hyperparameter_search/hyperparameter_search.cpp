@@ -28,6 +28,10 @@ inline constexpr std::uint32_t ACO_SEARCH_ID = 0xAC050001u;
 inline constexpr std::uint32_t PARAM_SEED_ID = 0xC0FFEE01u;
 const std::filesystem::path SEARCH_RESULTS_DIR = "search_results";
 
+#ifndef TSP_PROJECT_ROOT
+#define TSP_PROJECT_ROOT "."
+#endif
+
 struct SearchStats {
     double best_cost = std::numeric_limits<double>::max();
     double mean_cost = 0.0;
@@ -37,6 +41,14 @@ struct SearchStats {
     double gap_percent = 0.0;
     std::uint32_t first_run_seed = 0;
 };
+
+std::filesystem::path project_root() {
+    return std::filesystem::path(TSP_PROJECT_ROOT);
+}
+
+std::string tsplib_test_file(const std::string& filename) {
+    return (project_root() / "tsplib" / "tests" / filename).string();
+}
 
 std::string dataset_name(const std::string& path) {
     const size_t slash_pos = path.find_last_of("/\\");
@@ -50,7 +62,7 @@ std::string dataset_name(const std::string& path) {
     return name;
 }
 
-std::unordered_map<std::string, double> load_best_known_solutions(const std::string& filename) {
+std::unordered_map<std::string, double> load_best_known_solutions(const std::filesystem::path& filename) {
     std::unordered_map<std::string, double> solutions;
     std::ifstream file(filename);
     if (!file.is_open()) {
@@ -88,7 +100,7 @@ std::ofstream open_search_results_file(const std::string& filename) {
 }
 
 double best_known_for_dataset(const std::string& dataset) {
-    static const auto solutions = load_best_known_solutions("tsplib/solutions");
+    static const auto solutions = load_best_known_solutions(project_root() / "tsplib" / "solutions");
     const auto found = solutions.find(dataset_name(dataset));
     return found == solutions.end() ? 0.0 : found->second;
 }
@@ -478,19 +490,19 @@ HyperparameterSearchConfig parse_arguments(int argc, char* argv[]) {
 
 std::vector<std::string> tuning_datasets() {
     return {
-        "tsplib/tests/eil51.tsp",
-        "tsplib/tests/st70.tsp",
-        "tsplib/tests/pr144.tsp"
+        tsplib_test_file("eil51.tsp"),
+        tsplib_test_file("st70.tsp"),
+        tsplib_test_file("pr144.tsp")
     };
 }
 
 std::vector<std::string> final_benchmark_datasets() {
     return {
-        "tsplib/tests/berlin52.tsp",
-        "tsplib/tests/eil76.tsp",
-        "tsplib/tests/kroA100.tsp",
-        "tsplib/tests/kroB100.tsp",
-        "tsplib/tests/ch130.tsp"
+        tsplib_test_file("berlin52.tsp"),
+        tsplib_test_file("eil76.tsp"),
+        tsplib_test_file("kroA100.tsp"),
+        tsplib_test_file("kroB100.tsp"),
+        tsplib_test_file("ch130.tsp")
     };
 }
 

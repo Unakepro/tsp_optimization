@@ -81,8 +81,12 @@ inline void validate_tsp_input(const std::vector<City>& cities, const std::strin
 
 
 double total_cost(const std::vector<City>& cities) {
+    if (cities.size() < 2) {
+        return 0.0;
+    }
+
     double total_distance = 0;
-    
+
     for(size_t i = 1; i < cities.size(); ++i) {
         total_distance += euclideanDistance(cities[i-1], cities[i]);
     }
