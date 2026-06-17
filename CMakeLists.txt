@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.16)
+cmake_minimum_required(VERSION 3.21)
 
 project(tsp_optimization LANGUAGES CXX)
 
@@ -20,6 +20,9 @@ add_library(tsp_core
 
 add_executable(tsp_optimization main.cpp)
 target_link_libraries(tsp_optimization PRIVATE tsp_core)
+target_compile_definitions(tsp_optimization PRIVATE
+    TSP_PROJECT_ROOT="${PROJECT_SOURCE_DIR}"
+)
 
 add_executable(tsp_hyperparameter_search hyperparameter_search/hyperparameter_search.cpp)
 target_link_libraries(tsp_hyperparameter_search PRIVATE tsp_core)
@@ -41,11 +44,7 @@ endif()
 option(TSP_ENABLE_SANITIZERS "Build with AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
 
 foreach(target ${TSP_TARGETS})
-    if(MSVC)
-        target_compile_options(${target} PRIVATE /W4)
-    else()
-        target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic)
-    endif()
+    target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic)
 
     if(TSP_ENABLE_SANITIZERS AND CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
         target_compile_options(${target} PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer)

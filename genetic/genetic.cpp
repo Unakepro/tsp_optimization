@@ -7,6 +7,8 @@
 #include <stdexcept>
 
 namespace {
+constexpr std::size_t TOURNAMENT_SIZE = 3;
+constexpr std::size_t MEMETIC_TWO_OPT_MOVES = 25;
 
 struct ScoredTour {
     std::vector<City> tour;
@@ -14,19 +16,29 @@ struct ScoredTour {
 };
 
 std::size_t tournament_select(const std::vector<ScoredTour>& population) {
-    const std::size_t candidate_count = std::max<std::size_t>(1, population.size() / 2);
-    std::uniform_int_distribution<std::size_t> candidate_dist(0, candidate_count - 1);
+    std::uniform_int_distribution<std::size_t> candidate_dist(0, population.size() - 1);
 
-    const std::size_t cand1 = candidate_dist(gen);
-    const std::size_t cand2 = candidate_dist(gen);
+    std::size_t best = candidate_dist(gen);
+    for (std::size_t i = 1; i < TOURNAMENT_SIZE; ++i) {
+        const std::size_t candidate = candidate_dist(gen);
+        if (population[candidate].cost < population[best].cost) {
+            best = candidate;
+        }
+    }
 
-    return population[cand1].cost <= population[cand2].cost ? cand1 : cand2;
+    return best;
 }
 
 void update_best(const ScoredTour& candidate, std::vector<City>& best_tour, double& best_cost) {
     if (candidate.cost < best_cost) {
         best_tour = candidate.tour;
         best_cost = candidate.cost;
+    }
+}
+
+void apply_memetic_search(ScoredTour& candidate, const std::vector<double>& distance_matrix) {
+    if (apply_bounded_two_opt(candidate.tour, distance_matrix, MEMETIC_TWO_OPT_MOVES) > 0) {
+        candidate.cost = total_cost(candidate.tour, distance_matrix);
     }
 }
 
@@ -119,14 +131,16 @@ void genetic_optimization(std::vector<City>& cities, double mutation_rate, std::
     validate_genetic_parameters(cities, mutation_rate, size, steps);
 
     const std::vector<double> distance_matrix = build_distance_matrix(cities);
+    const std::vector<City> original_tour = cities;
 
     std::shuffle(cities.begin(), cities.end(), gen);
 
     std::vector<ScoredTour> population;
     population.reserve(size);
+    population.push_back({original_tour, total_cost(original_tour, distance_matrix)});
 
     std::vector<City> tmp;
-    for (std::size_t i = 0; i < size; ++i) {
+    for (std::size_t i = 1; i < size; ++i) {
         tmp = cities;
         std::shuffle(tmp.begin(), tmp.end(), gen);
         const double cost = total_cost(tmp, distance_matrix);
@@ -144,9 +158,9 @@ void genetic_optimization(std::vector<City>& cities, double mutation_rate, std::
         });
 
         if (use_two_opt) {
-            for (std::size_t j = 0; j < population.size() / 4; ++j) {
-                apply_two_opt(population[j].tour, distance_matrix);
-                population[j].cost = total_cost(population[j].tour, distance_matrix);
+            const std::size_t polished_elites = std::min<std::size_t>(std::max<std::size_t>(1, population.size() / 10), population.size());
+            for (std::size_t j = 0; j < polished_elites; ++j) {
+                apply_memetic_search(population[j], distance_matrix);
             }
 
             std::sort(population.begin(), population.end(), [](const ScoredTour& lhs, const ScoredTour& rhs) {
@@ -164,6 +178,8 @@ void genetic_optimization(std::vector<City>& cities, double mutation_rate, std::
         }
 
         std::bernoulli_distribution should_mutate(mutation_rate);
+        std::size_t polished_children = 0;
+        const std::size_t max_polished_children = use_two_opt ? std::max<std::size_t>(1, size / 20) : 0;
         while (next_population.size() < size) {
             const std::size_t parent1 = tournament_select(population);
             const std::size_t parent2 = tournament_select(population);
@@ -175,6 +191,10 @@ void genetic_optimization(std::vector<City>& cities, double mutation_rate, std::
 
             const double result_cost = total_cost(result, distance_matrix);
             ScoredTour child{std::move(result), result_cost};
+            if (use_two_opt && polished_children < max_polished_children) {
+                apply_memetic_search(child, distance_matrix);
+                ++polished_children;
+            }
             update_best(child, currBest, currDistance);
             next_population.emplace_back(std::move(child));
         }
@@ -186,5 +206,8 @@ void genetic_optimization(std::vector<City>& cities, double mutation_rate, std::
         }
     }
 
+    if (use_two_opt) {
+        apply_bounded_two_opt(currBest, distance_matrix, MEMETIC_TWO_OPT_MOVES);
+    }
     cities = currBest;
 }

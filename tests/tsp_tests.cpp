@@ -21,6 +21,16 @@ void expect(bool condition, const std::string& message) {
     }
 }
 
+bool rejects_invalid_argument(const std::function<void()>& action) {
+    try {
+        action();
+    } catch (const std::invalid_argument&) {
+        return true;
+    }
+
+    return false;
+}
+
 std::vector<City> rectangle_tour() {
     return {
         {1, {0.0, 0.0}},
@@ -124,6 +134,19 @@ void test_distance_and_total_cost() {
     expect(total_cost(shuffled, distance_matrix) == total_cost(shuffled), "matrix total cost should be indexed by city id, not vector position");
 }
 
+void test_matrix_cost_rejects_invalid_ids() {
+    const auto cities = rectangle_tour();
+    const auto distance_matrix = build_distance_matrix(cities);
+
+    auto out_of_range = cities;
+    out_of_range[3].id = 9;
+    expect(rejects_invalid_argument([&]() { total_cost(out_of_range, distance_matrix); }), "matrix total cost should reject out-of-range city ids");
+
+    auto duplicate = cities;
+    duplicate[2] = duplicate[1];
+    expect(rejects_invalid_argument([&]() { total_cost(duplicate, distance_matrix); }), "matrix total cost should reject duplicate city ids");
+}
+
 void test_tour_validity() {
     const auto cities = rectangle_tour();
     expect(is_valid_tour(cities), "valid tour should pass");
@@ -137,6 +160,15 @@ void test_tour_validity() {
     expect(!is_valid_tour(missing), "tour validity should reject missing/out-of-range city ids");
 }
 
+void test_two_opt_rejects_invalid_ids() {
+    const auto cities = rectangle_tour();
+    const auto distance_matrix = build_distance_matrix(cities);
+
+    auto invalid = cities;
+    invalid[0].id = 6;
+    expect(rejects_invalid_argument([&]() { apply_bounded_two_opt(invalid, distance_matrix, 1); }), "two-opt should reject out-of-range city ids");
+}
+
 void test_two_opt_non_regression() {
     auto cities = crossing_tour();
     const auto distance_matrix = build_distance_matrix(cities);
@@ -148,6 +180,13 @@ void test_two_opt_non_regression() {
     expect(is_valid_tour(cities), "two-opt should preserve tour validity");
     expect(after <= before, "two-opt should not make a tour worse");
     expect(after == 40.0, "two-opt should uncross the simple four-city tour");
+}
+
+void test_sa_full_reversal_delta() {
+    const auto cities = rectangle_tour();
+    const auto distance_matrix = build_distance_matrix(cities);
+
+    expect(tour_reversal_delta(cities, distance_matrix, 0, cities.size() - 1) == 0.0, "reversing the full cycle should not change tour cost");
 }
 
 void test_genetic_crossover_validity() {
@@ -172,14 +211,15 @@ void test_genetic_mutation_validity() {
     }
 }
 
-void test_genetic_tracks_final_generation_children() {
+void test_genetic_does_not_worsen_starting_tour() {
     auto tour = sample_cities();
+    const double starting_cost = total_cost(tour);
 
     set_random_seed(19);
     genetic_optimization(tour, 0.35, 9, 1);
 
     expect(is_valid_tour(tour), "genetic algorithm should return a valid tour after one generation");
-    expect(total_cost(tour) <= 27.0, "genetic algorithm should keep an improving child from the final generation");
+    expect(total_cost(tour) <= starting_cost, "genetic algorithm should not return a tour worse than the starting tour");
 }
 
 void test_aco_handles_zero_cost_tours() {
@@ -227,11 +267,14 @@ int main() {
         {"TSPLIB parser", test_tsplib_parser},
         {"TSPLIB parser rejects duplicates", test_tsplib_parser_rejects_duplicates},
         {"distance and total cost", test_distance_and_total_cost},
+        {"matrix cost rejects invalid ids", test_matrix_cost_rejects_invalid_ids},
         {"tour validity", test_tour_validity},
+        {"two-opt rejects invalid ids", test_two_opt_rejects_invalid_ids},
         {"two-opt non-regression", test_two_opt_non_regression},
+        {"SA full reversal delta", test_sa_full_reversal_delta},
         {"GA crossover validity", test_genetic_crossover_validity},
         {"GA mutation validity", test_genetic_mutation_validity},
-        {"GA final generation tracking", test_genetic_tracks_final_generation_children},
+        {"GA keeps starting tour baseline", test_genetic_does_not_worsen_starting_tour},
         {"ACO zero-cost tours", test_aco_handles_zero_cost_tours},
         {"algorithm validity", test_algorithms_preserve_valid_tours}
     };

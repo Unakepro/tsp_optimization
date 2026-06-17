@@ -34,6 +34,7 @@ bool is_valid_tour(const std::vector<City>& cities);
 std::vector<double> build_distance_matrix(const std::vector<City>& cities);
 double total_cost(const std::vector<City>& cities);
 double total_cost(const std::vector<City>& cities, const std::vector<double>& distance_matrix);
+std::size_t apply_bounded_two_opt(std::vector<City>& path, const std::vector<double>& distance_matrix, std::size_t max_improvements);
 void apply_two_opt(std::vector<City>& path, const std::vector<double>& distance_matrix);
 void readfile(std::vector<City>& cities, const std::string& filename);
 

@@ -78,14 +78,17 @@ The current tests check:
 Main benchmark runner:
 
 ```bash
-./build/debug/tsp_optimization 42
+./build/debug/tsp_optimization 42 budget
+./build/debug/tsp_optimization 42 full
 ```
 
-Argument:
+Arguments:
 
 - `42`: base random seed. If omitted, the default seed is `42`.
+- `budget`: fair evaluation-budget comparison mode. This keeps SA, GA, and ACO on explicit comparable work budgets.
+- `full`: bounded stronger-run mode. This uses fewer repeats, stronger parameters, and local search where useful so each algorithm can show more of its practical quality without running indefinitely.
 
-Outputs are written to `results/` with headers that include algorithm parameters, base seed, evaluation budget, cost statistic, and average runtime.
+Outputs are written to `results/` with headers that include mode, algorithm parameters, repeats, base seed, evaluation budget, cost statistic, standard deviation, and average runtime.
 
 Hyperparameter search:
 
@@ -110,6 +113,11 @@ $ cmake --preset debug
 $ cmake --build --preset debug
 $ ctest --test-dir build/debug --output-on-failure
 100% tests passed
+
+$ ./build/debug/tsp_optimization 42 budget
+Using base seed: 42
+Using benchmark mode: budget
+...
 
 $ ./build/debug/tsp_hyperparameter_search 42 3 tuning 10000
 Using base seed: 42
@@ -157,7 +165,6 @@ Generated benchmark CSV files are intentionally ignored by git so results can be
 
 - TSPLIB parser currently supports `EDGE_WEIGHT_TYPE: EUC_2D` with `NODE_COORD_SECTION`.
 - These are heuristic solvers, not exact solvers, so they do not guarantee optimal tours.
-- Simulated annealing still recomputes full tour cost for each proposed move.
 - The main benchmark runner has fixed dataset and parameter choices; the hyperparameter executable is more configurable.
 - Convergence logging is minimal and not yet emitted as a machine-readable CSV.
 
@@ -165,7 +172,6 @@ Generated benchmark CSV files are intentionally ignored by git so results can be
 
 - Add a richer CLI for selecting algorithms, datasets, budgets, repeats, and output paths.
 - Add convergence traces per repeat for plotting cost versus evaluation count.
-- Add delta-cost evaluation for two-opt and simulated annealing moves.
 - Add a final benchmark script that aggregates CSV outputs into a Markdown table automatically.
 - Add support for more TSPLIB edge weight types where appropriate.
 - Compare against a simple nearest-neighbor baseline.

@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <fstream>
+#include <limits>
 #include <sstream>
 #include <stdexcept>
 #include <unordered_set>
@@ -149,6 +150,7 @@ double total_cost(const std::vector<City>& cities, const std::vector<double>& di
     if (distance_matrix.size() != n * n) {
         throw std::invalid_argument("Distance matrix size does not match tour size.");
     }
+    validate_tsp_input(cities, "Matrix tour cost");
 
     double total_distance = 0.0;
 
@@ -165,22 +167,27 @@ double total_cost(const std::vector<City>& cities, const std::vector<double>& di
     return total_distance;
 }
 
-void apply_two_opt(std::vector<City>& path, const std::vector<double>& distance_matrix) {
+std::size_t apply_bounded_two_opt(std::vector<City>& path, const std::vector<double>& distance_matrix, std::size_t max_improvements) {
     const std::size_t n = path.size();
-    if (n < 4) {
-        return;
+    if (n < 2 || max_improvements == 0) {
+        return 0;
     }
     if (distance_matrix.size() != n * n) {
         throw std::invalid_argument("Distance matrix size does not match tour size.");
     }
+    validate_tsp_input(path, "Two-opt");
+    if (n < 4) {
+        return 0;
+    }
 
+    std::size_t improvements = 0;
     bool improved = true;
 
-    while (improved) {
+    while (improved && improvements < max_improvements) {
         improved = false;
 
-        for (std::size_t i = 1; i < n - 1; ++i) {
-            for (std::size_t j = i + 1; j < n; ++j) {
+        for (std::size_t i = 1; i < n - 1 && improvements < max_improvements; ++i) {
+            for (std::size_t j = i + 1; j < n && improvements < max_improvements; ++j) {
                 const std::size_t next_j = (j + 1) % n;
 
                 const auto a = static_cast<std::size_t>(path[i - 1].id - 1);
@@ -197,10 +204,17 @@ void apply_two_opt(std::vector<City>& path, const std::vector<double>& distance_
                 if (new_cost < old_cost) {
                     std::reverse(path.begin() + i, path.begin() + j + 1);
                     improved = true;
+                    ++improvements;
                 }
             }
         }
     }
+
+    return improvements;
+}
+
+void apply_two_opt(std::vector<City>& path, const std::vector<double>& distance_matrix) {
+    apply_bounded_two_opt(path, distance_matrix, std::numeric_limits<std::size_t>::max());
 }
 
 void readfile(std::vector<City>& cities, const std::string& filename) {
