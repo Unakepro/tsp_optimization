@@ -1,5 +1,5 @@
-#ifndef CITY
-#define CITY
+#ifndef TSP_CITY_HPP
+#define TSP_CITY_HPP
 
 #include <cstddef>
 #include <cstdint>
@@ -30,7 +30,10 @@ struct City {
 int tsplibEuc2dDistance(const City& a, const City& b);
 double euclideanDistance(const City& a, const City& b);
 void validate_tsp_input(const std::vector<City>& cities, const std::string& algorithm_name);
+bool is_valid_tour(const std::vector<City>& cities);
+std::vector<double> build_distance_matrix(const std::vector<City>& cities);
 double total_cost(const std::vector<City>& cities);
+double total_cost(const std::vector<City>& cities, const std::vector<double>& distance_matrix);
 void apply_two_opt(std::vector<City>& path, const std::vector<double>& distance_matrix);
 void readfile(std::vector<City>& cities, const std::string& filename);
 

@@ -96,6 +96,35 @@ void validate_tsp_input(const std::vector<City>& cities, const std::string& algo
     }
 }
 
+bool is_valid_tour(const std::vector<City>& cities) {
+    try {
+        validate_tsp_input(cities, "Tour");
+    } catch (const std::invalid_argument&) {
+        return false;
+    }
+
+    return true;
+}
+
+std::vector<double> build_distance_matrix(const std::vector<City>& cities) {
+    validate_tsp_input(cities, "Distance matrix");
+
+    const std::size_t n = cities.size();
+    std::vector<double> distance_matrix(n * n, 0.0);
+
+    for (const auto& from: cities) {
+        const auto from_index = static_cast<std::size_t>(from.id - 1);
+        for (const auto& to: cities) {
+            const auto to_index = static_cast<std::size_t>(to.id - 1);
+            if (from_index != to_index) {
+                distance_matrix[matrix_index(from_index, to_index, n)] = euclideanDistance(from, to);
+            }
+        }
+    }
+
+    return distance_matrix;
+}
+
 double total_cost(const std::vector<City>& cities) {
     if (cities.size() < 2) {
         return 0.0;
@@ -112,10 +141,37 @@ double total_cost(const std::vector<City>& cities) {
     return total_distance;
 }
 
+double total_cost(const std::vector<City>& cities, const std::vector<double>& distance_matrix) {
+    const std::size_t n = cities.size();
+    if (n < 2) {
+        return 0.0;
+    }
+    if (distance_matrix.size() != n * n) {
+        throw std::invalid_argument("Distance matrix size does not match tour size.");
+    }
+
+    double total_distance = 0.0;
+
+    for (std::size_t i = 1; i < n; ++i) {
+        const auto previous_id = static_cast<std::size_t>(cities[i - 1].id - 1);
+        const auto current_id = static_cast<std::size_t>(cities[i].id - 1);
+        total_distance += distance_matrix[matrix_index(previous_id, current_id, n)];
+    }
+
+    const auto last_id = static_cast<std::size_t>(cities[n - 1].id - 1);
+    const auto first_id = static_cast<std::size_t>(cities[0].id - 1);
+    total_distance += distance_matrix[matrix_index(last_id, first_id, n)];
+
+    return total_distance;
+}
+
 void apply_two_opt(std::vector<City>& path, const std::vector<double>& distance_matrix) {
     const std::size_t n = path.size();
     if (n < 4) {
         return;
+    }
+    if (distance_matrix.size() != n * n) {
+        throw std::invalid_argument("Distance matrix size does not match tour size.");
     }
 
     bool improved = true;

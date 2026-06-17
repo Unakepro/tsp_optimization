@@ -202,6 +202,24 @@ int budgeted_iterations(const HyperparameterSearchConfig& config, int work_per_i
     return std::max(1, config.evaluation_budget / work_per_iteration);
 }
 
+int scheduled_sa_iterations(int start_temp, double end_temp, double alpha, int max_steps) {
+    if (max_steps <= 0) {
+        throw std::invalid_argument("max steps must be positive");
+    }
+
+    int iterations = 0;
+    double temperature = start_temp;
+    while (iterations < max_steps) {
+        ++iterations;
+        temperature *= alpha;
+        if (temperature <= end_temp) {
+            break;
+        }
+    }
+
+    return iterations;
+}
+
 std::string sa_values(int temperature, double cooling, int iterations) {
     std::ostringstream values;
     values << temperature << "," << cooling << "," << iterations;
@@ -241,7 +259,6 @@ std::string aco_log(int ants, double alpha, double beta, double evaporation) {
 std::vector<SearchTrial> random_sa_trials(const HyperparameterSearchConfig& config, std::size_t dataset_index) {
     std::vector<SearchTrial> trials;
     const int random_trials = 20;
-    const int iterations = config.evaluation_budget;
 
     for (int t = 0; t < random_trials; ++t) {
         const std::size_t trial_index = static_cast<std::size_t>(t);
@@ -253,6 +270,7 @@ std::vector<SearchTrial> random_sa_trials(const HyperparameterSearchConfig& conf
 
         const int temperature = temp_dist(gen);
         const double cooling = cooling_dist(gen);
+        const int iterations = scheduled_sa_iterations(temperature, 1e-3, cooling, config.evaluation_budget);
 
         trials.push_back({
             trial_index,
@@ -270,12 +288,12 @@ std::vector<SearchTrial> grid_sa_trials(const HyperparameterSearchConfig& config
     std::vector<SearchTrial> trials;
     std::vector<int> start_temperatures = {1000, 5000, 10000};
     std::vector<double> cooling_rates = {0.99, 0.999, 0.9999, 0.99999};
-    const int iterations = config.evaluation_budget;
     std::size_t trial_index = 0;
 
     for (int temperature: start_temperatures) {
         for (double cooling: cooling_rates) {
             const auto param_seed = derive_parameter_seed(config.base_seed, SA_SEARCH_ID, dataset_index, trial_index);
+            const int iterations = scheduled_sa_iterations(temperature, 1e-3, cooling, config.evaluation_budget);
 
             trials.push_back({
                 trial_index,

@@ -3,97 +3,102 @@
 #include <algorithm>
 #include <cmath>
 #include <iostream>
-#include <queue>
 #include <random>
-#include <set>
 #include <stdexcept>
 
 namespace {
 
-std::size_t matrix_index(std::size_t i, std::size_t j, std::size_t n) {
-    return i * n + j;
+struct ScoredTour {
+    std::vector<City> tour;
+    double cost = 0.0;
+};
+
+std::size_t tournament_select(const std::vector<ScoredTour>& population) {
+    const std::size_t candidate_count = std::max<std::size_t>(1, population.size() / 2);
+    std::uniform_int_distribution<std::size_t> candidate_dist(0, candidate_count - 1);
+
+    const std::size_t cand1 = candidate_dist(gen);
+    const std::size_t cand2 = candidate_dist(gen);
+
+    return population[cand1].cost <= population[cand2].cost ? cand1 : cand2;
 }
 
-std::vector<City> crossover(std::vector<std::vector<City>>& population, int index1, int index2) {
-    std::uniform_int_distribution<> path_dist(0, population[index1].size() - 1);
+void update_best(const ScoredTour& candidate, std::vector<City>& best_tour, double& best_cost) {
+    if (candidate.cost < best_cost) {
+        best_tour = candidate.tour;
+        best_cost = candidate.cost;
+    }
+}
 
-    std::vector<City> output = population[index1];
-    int start = path_dist(gen);
-    int end = path_dist(gen);
+}
+
+std::vector<City> genetic_order_crossover(const std::vector<City>& parent1, const std::vector<City>& parent2) {
+    if (parent1.empty() || parent1.size() != parent2.size()) {
+        throw std::invalid_argument("Genetic crossover requires non-empty parents with equal sizes.");
+    }
+
+    std::uniform_int_distribution<std::size_t> path_dist(0, parent1.size() - 1);
+
+    std::size_t start = path_dist(gen);
+    std::size_t end = path_dist(gen);
 
     if (start > end) {
         std::swap(start, end);
     }
 
-    std::set<City> used(population[index1].begin() + start, population[index1].begin() + end + 1);
+    std::vector<City> output(parent1.size());
+    std::vector<bool> copied_position(parent1.size(), false);
+    std::vector<bool> used_city(parent1.size(), false);
 
-    std::queue<City> not_used;
-    for (std::size_t i = 0; i < population[index2].size(); ++i) {
-        if (used.find(population[index2][i]) == used.end()) {
-            not_used.push(population[index2][i]);
-        }
+    for (std::size_t i = start; i <= end; ++i) {
+        output[i] = parent1[i];
+        copied_position[i] = true;
+        used_city[static_cast<std::size_t>(parent1[i].id - 1)] = true;
     }
 
+    auto parent2_it = parent2.begin();
     for (std::size_t i = 0; i < output.size(); ++i) {
-        if (used.find(output[i]) == used.end()) {
-            output[i] = not_used.front();
-            not_used.pop();
+        if (copied_position[i]) {
+            continue;
         }
+
+        while (parent2_it != parent2.end() && used_city[static_cast<std::size_t>(parent2_it->id - 1)]) {
+            ++parent2_it;
+        }
+        if (parent2_it == parent2.end()) {
+            throw std::runtime_error("Genetic crossover failed to construct a complete child tour.");
+        }
+
+        output[i] = *parent2_it;
+        used_city[static_cast<std::size_t>(parent2_it->id - 1)] = true;
     }
 
     return output;
 }
 
-void mutation(std::vector<City>& order) {
-    std::uniform_int_distribution<> city_swap(0, order.size() - 1);
+void mutate_tour(std::vector<City>& order) {
+    if (order.size() < 2) {
+        return;
+    }
+
+    std::uniform_int_distribution<std::size_t> city_dist(0, order.size() - 1);
     std::uniform_real_distribution<> mutation_type(0.0, 1.0);
 
+    std::size_t i = city_dist(gen);
+    std::size_t j = city_dist(gen);
+    while (i == j) {
+        j = city_dist(gen);
+    }
+
     if (mutation_type(gen) < 0.7) {
-        std::swap(order[city_swap(gen)], order[city_swap(gen)]);
-    } else {
-        int i = city_swap(gen);
-        int j = city_swap(gen);
-        if (i > j) {
-            std::swap(i, j);
-        }
-        if (j > i) {
-            std::reverse(order.begin() + i, order.begin() + j + 1);
-        }
-    }
-}
-
-void precompute_distance(const std::vector<City>& cities, std::vector<double>& distance_matrix) {
-    std::size_t n = cities.size();
-
-    for (std::size_t i = 0; i < n; ++i) {
-        for (std::size_t j = 0; j < n; ++j) {
-            if (i != j) {
-                double dist = euclideanDistance(cities[i], cities[j]);
-                distance_matrix[matrix_index(i, j, n)] = dist;
-            } else {
-                distance_matrix[matrix_index(i, j, n)] = 0;
-            }
-        }
-    }
-}
-
-double total_cost_fast(const std::vector<City>& cities, const std::vector<double>& distance_matrix) {
-    double total_distance = 0;
-    std::size_t n = cities.size();
-
-    for (std::size_t i = 1; i < n; ++i) {
-        const auto id1 = static_cast<std::size_t>(cities[i - 1].id - 1);
-        const auto id2 = static_cast<std::size_t>(cities[i].id - 1);
-        total_distance += distance_matrix[matrix_index(id1, id2, n)];
+        std::swap(order[i], order[j]);
+        return;
     }
 
-    const auto last_id = static_cast<std::size_t>(cities[n - 1].id - 1);
-    const auto first_id = static_cast<std::size_t>(cities[0].id - 1);
-    total_distance += distance_matrix[matrix_index(last_id, first_id, n)];
-
-    return total_distance;
-}
-
+    if (i > j) {
+        std::swap(i, j);
+    }
+    std::reverse(order.begin() + static_cast<std::ptrdiff_t>(i), order.begin() + static_cast<std::ptrdiff_t>(j + 1));
 }
 
 void validate_genetic_parameters(const std::vector<City>& cities, double mutation_rate, std::size_t size, std::size_t steps) {
@@ -110,83 +115,73 @@ void validate_genetic_parameters(const std::vector<City>& cities, double mutatio
     }
 }
 
-void genetic_optimization(std::vector<City>& cities, double mutation_rate, std::size_t size, std::size_t steps, bool use_two_opt) {
+void genetic_optimization(std::vector<City>& cities, double mutation_rate, std::size_t size, std::size_t steps, bool use_two_opt, bool verbose) {
     validate_genetic_parameters(cities, mutation_rate, size, steps);
 
-    std::vector<double> distance_matrix(cities.size() * cities.size());
-    precompute_distance(cities, distance_matrix);
+    const std::vector<double> distance_matrix = build_distance_matrix(cities);
 
     std::shuffle(cities.begin(), cities.end(), gen);
 
-    std::vector<std::vector<City>> population;
+    std::vector<ScoredTour> population;
+    population.reserve(size);
 
     std::vector<City> tmp;
     for (std::size_t i = 0; i < size; ++i) {
         tmp = cities;
         std::shuffle(tmp.begin(), tmp.end(), gen);
-        population.emplace_back(std::move(tmp));
+        const double cost = total_cost(tmp, distance_matrix);
+        population.push_back({std::move(tmp), cost});
     }
 
-    auto currBest = cities;
-    double currDistance = total_cost_fast(currBest, distance_matrix);
+    auto currBest = population.front().tour;
+    double currDistance = population.front().cost;
 
     for (std::size_t i = 0; i < steps; ++i) {
         std::shuffle(population.begin(), population.end(), gen);
 
-        if (use_two_opt) {
-            for (std::size_t j = 0; j < population.size() / 4; ++j) {
-                apply_two_opt(population[j], distance_matrix);
-            }
-        }
-
-        std::sort(population.begin(), population.end(), [&distance_matrix](const std::vector<City>& lhs, const std::vector<City>& rhs) {
-            return total_cost_fast(lhs, distance_matrix) < total_cost_fast(rhs, distance_matrix);
+        std::sort(population.begin(), population.end(), [](const ScoredTour& lhs, const ScoredTour& rhs) {
+            return lhs.cost < rhs.cost;
         });
 
-        double current_best_cost = total_cost_fast(population[0], distance_matrix);
-        if (currDistance > current_best_cost) {
-            currBest = population[0];
-            currDistance = current_best_cost;
-        }
-
-        std::vector<std::vector<City>> selection;
-        std::uniform_int_distribution<> dist(0, population.size() - 1);
-
-        std::size_t elite_count = std::max(1, static_cast<int>(size * 0.1));
-        for (std::size_t j = 0; j < elite_count; ++j) {
-            selection.push_back(population[j]);
-        }
-
-        for (std::size_t j = elite_count; j < size / 2; ++j) {
-            int cand1 = dist(gen) % (population.size() / 2);
-            int cand2 = dist(gen) % (population.size() / 2);
-            int parent1 = total_cost_fast(population[cand1], distance_matrix) <= total_cost_fast(population[cand2], distance_matrix) ? cand1 : cand2;
-
-            cand1 = dist(gen) % (population.size() / 2);
-            cand2 = dist(gen) % (population.size() / 2);
-            int parent2 = total_cost_fast(population[cand1], distance_matrix) <= total_cost_fast(population[cand2], distance_matrix) ? cand1 : cand2;
-
-            auto result = crossover(population, parent1, parent2);
-
-            int chanceThreshold = static_cast<int>(100 * mutation_rate);
-            std::uniform_int_distribution<> dis(1, 100);
-
-            int chance = dis(gen);
-            if (chance <= chanceThreshold) {
-                mutation(result);
+        if (use_two_opt) {
+            for (std::size_t j = 0; j < population.size() / 4; ++j) {
+                apply_two_opt(population[j].tour, distance_matrix);
+                population[j].cost = total_cost(population[j].tour, distance_matrix);
             }
 
-            selection.emplace_back(std::move(result));
+            std::sort(population.begin(), population.end(), [](const ScoredTour& lhs, const ScoredTour& rhs) {
+                return lhs.cost < rhs.cost;
+            });
         }
 
-        int half_size = population.size() / 2;
+        update_best(population[0], currBest, currDistance);
 
-        population.erase(population.begin() + half_size, population.end());
-        population.resize(half_size);
+        std::vector<ScoredTour> next_population;
+        next_population.reserve(size);
+        const std::size_t elite_count = std::min<std::size_t>(size, std::max<std::size_t>(1, size / 10));
+        for (std::size_t j = 0; j < elite_count; ++j) {
+            next_population.push_back(population[j]);
+        }
 
-        population.insert(population.end(), selection.begin(), selection.end());
+        std::bernoulli_distribution should_mutate(mutation_rate);
+        while (next_population.size() < size) {
+            const std::size_t parent1 = tournament_select(population);
+            const std::size_t parent2 = tournament_select(population);
 
-        if (i % 100 == 0) {
+            auto result = genetic_order_crossover(population[parent1].tour, population[parent2].tour);
+            if (should_mutate(gen)) {
+                mutate_tour(result);
+            }
+
+            const double result_cost = total_cost(result, distance_matrix);
+            ScoredTour child{std::move(result), result_cost};
+            update_best(child, currBest, currDistance);
+            next_population.emplace_back(std::move(child));
+        }
+
+        population = std::move(next_population);
+
+        if (verbose && i % 100 == 0) {
             std::cout << "Generation " << i << " - Best: " << currDistance << " - Mutation Rate: " << mutation_rate << std::endl;
         }
     }

@@ -36,6 +36,24 @@ std::size_t budgeted_iterations(std::size_t evaluation_budget, std::size_t work_
     return std::max<std::size_t>(1, evaluation_budget / work_per_iteration);
 }
 
+std::size_t scheduled_sa_iterations(double start_temp, double end_temp, double alpha, std::size_t max_steps) {
+    if (max_steps == 0) {
+        throw std::invalid_argument("max steps must be positive");
+    }
+
+    std::size_t iterations = 0;
+    double temperature = start_temp;
+    while (iterations < max_steps) {
+        ++iterations;
+        temperature *= alpha;
+        if (temperature <= end_temp) {
+            break;
+        }
+    }
+
+    return iterations;
+}
+
 std::ofstream open_results_file(const std::string& filename) {
     std::filesystem::create_directories(RESULTS_DIR);
     const auto output_path = RESULTS_DIR / filename;
@@ -184,18 +202,18 @@ void run_tests_genetic(const std::string& filename, const std::vector<std::strin
 }
 
 void run_tests_sa(const std::string& filename, const std::vector<std::string>& datasets, double temp, double end_temp, double cool_rate, std::size_t evaluation_budget, std::uint32_t base_seed) {
-    const std::size_t max_epochs = evaluation_budget;
+    const std::size_t epochs = scheduled_sa_iterations(temp, end_temp, cool_rate, evaluation_budget);
 
     auto row_prefix = [=](const std::string& name) {
         std::ostringstream row;
         row << "SA," << name << "," << base_seed << "," << temp << "," << end_temp << "," << cool_rate
-            << "," << evaluation_budget << "," << max_epochs;
+            << "," << evaluation_budget << "," << epochs;
         return row.str();
     };
 
     auto log_result = [=](const std::string& name, const BenchmarkStats& stats) {
         std::cout << "[SA] " << name << " temp=" << temp << " cool=" << cool_rate
-                  << " seed=" << base_seed << " budget=" << evaluation_budget << " epochs=" << max_epochs
+                  << " seed=" << base_seed << " budget=" << evaluation_budget << " epochs=" << epochs
                   << " -> cost=" << stats.avg_cost << ", time=" << stats.avg_time << "s\n";
     };
 
@@ -205,7 +223,7 @@ void run_tests_sa(const std::string& filename, const std::vector<std::string>& d
         "algorithm,dataset,base_seed,temperature,end_temperature,cooling,evaluation_budget,epochs,stat,cost,avg_time_sec",
         SA_SEED_ID,
         base_seed,
-        [=](std::vector<City>& cities) { sa_optimization(cities, temp, end_temp, cool_rate, max_epochs); },
+        [=](std::vector<City>& cities) { sa_optimization(cities, temp, end_temp, cool_rate, epochs); },
         row_prefix,
         log_result);
 }
