@@ -168,21 +168,21 @@ void run_tests_sa(const std::string& filename, const std::vector<std::string>& d
     }
 } 
 
-void search_parameters() {
+void search_parameters(std::uint32_t base_seed = DEFAULT_RANDOM_SEED) {
     std::vector<std::string> datasets_search = {
         "tsplib/tests/eil51.tsp",
-        "tsplib/tests/pr144.tsp",
-        "tsplib/tests/rl5934.tsp"
+        "tsplib/tests/st70.tsp",
+        "tsplib/tests/pr144.tsp"
     };
 
-    random_search_aco(datasets_search);
-    grid_search_aco(datasets_search);
+    random_search_aco(datasets_search, base_seed);
+    grid_search_aco(datasets_search, base_seed);
 
-    grid_search_sa(datasets_search);
-    random_search_sa(datasets_search);
+    grid_search_sa(datasets_search, base_seed);
+    random_search_sa(datasets_search, base_seed);
 
-    random_search_genetic(datasets_search);
-    grid_search_genetic(datasets_search);
+    random_search_genetic(datasets_search, base_seed);
+    grid_search_genetic(datasets_search, base_seed);
 
 }
     

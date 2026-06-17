@@ -9,7 +9,7 @@
 const double Q = 100;
 
 
-void generate_path(const std::vector<City>& cities, std::vector<City>& path, const std::vector<double>& old_pheromons, const std::vector<double>& eta_matrix, int alpha, int beta) {
+void generate_path(const std::vector<City>& cities, std::vector<City>& path, const std::vector<double>& old_pheromons, const std::vector<double>& eta_matrix, double alpha, double beta) {
     size_t n = cities.size();
 
     std::vector<bool> used(n, false);
@@ -64,7 +64,7 @@ void precompute_matrix(const std::vector<City>& cities, std::vector<double>& dis
 }
 
 
-void aco(std::vector<City>& cities, size_t m, double alpha, double beta, double po, int epochs, bool use_two_opt = false) {
+void aco(std::vector<City>& cities, size_t m, double alpha, double beta, double po, size_t epochs, bool use_two_opt = false) {
     size_t n = cities.size();
 
     std::vector<double> pheromons(n * n, 1);
