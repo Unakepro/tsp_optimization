@@ -1,12 +1,14 @@
 #ifndef GENETIC
 #define GENETIC
 
+#include <cmath>
 #include <iostream>
 #include <vector>
 #include <algorithm>
 #include <random>
 #include <set>
 #include <queue>
+#include <stdexcept>
 #include "../Cities/city.hpp"
 
 
@@ -88,7 +90,22 @@ double total_cost_fast(const std::vector<City>& cities, const std::vector<double
     return total_distance;
 }
 
-void genetic_optimization(std::vector<City>& cities, double mutation_rate, size_t size, size_t steps, bool use_two_opt=false) {    
+void validate_genetic_parameters(const std::vector<City>& cities, double mutation_rate, size_t size, size_t steps) {
+    validate_tsp_input(cities, "Genetic algorithm");
+
+    if (!std::isfinite(mutation_rate) || mutation_rate < 0.0 || mutation_rate > 1.0) {
+        throw std::invalid_argument("Genetic algorithm parameter mutation_rate must be finite and between 0 and 1.");
+    }
+    if (size == 0) {
+        throw std::invalid_argument("Genetic algorithm parameter population_size must be greater than zero.");
+    }
+    if (steps == 0) {
+        throw std::invalid_argument("Genetic algorithm parameter steps must be greater than zero.");
+    }
+}
+
+void genetic_optimization(std::vector<City>& cities, double mutation_rate, size_t size, size_t steps, bool use_two_opt=false) {
+    validate_genetic_parameters(cities, mutation_rate, size, steps);
 
     std::vector<double> distance_matrix(cities.size() * cities.size());
     precompute_distance(cities, distance_matrix);

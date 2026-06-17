@@ -41,29 +41,22 @@ bool make_transition(long double P) {
 }
 
 inline void validate_sa_parameters(const std::vector<City>& cities, double start_temp, double end_temp, double alpha, size_t steps) {
-    if (cities.size() < 2) {
-        throw std::invalid_argument("Simulated annealing requires at least two cities.");
-    }
+    validate_tsp_input(cities, "Simulated annealing");
+
     if (!std::isfinite(start_temp) || start_temp <= 0.0) {
-        throw std::invalid_argument("start_temp must be a finite positive value.");
+        throw std::invalid_argument("Simulated annealing parameter start_temp must be finite and positive.");
     }
     if (!std::isfinite(end_temp) || end_temp <= 0.0) {
-        throw std::invalid_argument("end_temp must be a finite positive value.");
+        throw std::invalid_argument("Simulated annealing parameter end_temp must be finite and positive.");
     }
     if (end_temp >= start_temp) {
-        throw std::invalid_argument("end_temp must be smaller than start_temp.");
+        throw std::invalid_argument("Simulated annealing parameter end_temp must be smaller than start_temp.");
     }
     if (!std::isfinite(alpha) || alpha <= 0.0 || alpha >= 1.0) {
-        throw std::invalid_argument("alpha must be finite and between 0 and 1.");
+        throw std::invalid_argument("Simulated annealing parameter alpha must be finite and between 0 and 1.");
     }
     if (steps == 0) {
-        throw std::invalid_argument("steps must be greater than zero.");
-    }
-
-    for (const auto& city: cities) {
-        if (!std::isfinite(city.point.first) || !std::isfinite(city.point.second)) {
-            throw std::invalid_argument("city coordinates must be finite values.");
-        }
+        throw std::invalid_argument("Simulated annealing parameter steps must be greater than zero.");
     }
 }
 

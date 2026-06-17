@@ -58,6 +58,27 @@ inline double euclideanDistance(const City& a, const City& b) {
     return tsplibEuc2dDistance(a, b);
 }
 
+inline void validate_tsp_input(const std::vector<City>& cities, const std::string& algorithm_name) {
+    if (cities.size() < 2) {
+        throw std::invalid_argument(algorithm_name + " requires at least two cities.");
+    }
+
+    std::vector<bool> used_ids(cities.size(), false);
+    for (const auto& city: cities) {
+        if (city.id <= 0 || static_cast<size_t>(city.id) > cities.size()) {
+            throw std::invalid_argument(algorithm_name + " requires city ids in range 1..number of cities.");
+        }
+        if (used_ids[static_cast<size_t>(city.id - 1)]) {
+            throw std::invalid_argument(algorithm_name + " requires unique city ids.");
+        }
+        if (!std::isfinite(city.point.first) || !std::isfinite(city.point.second)) {
+            throw std::invalid_argument(algorithm_name + " requires finite city coordinates.");
+        }
+
+        used_ids[static_cast<size_t>(city.id - 1)] = true;
+    }
+}
+
 
 double total_cost(const std::vector<City>& cities) {
     double total_distance = 0;

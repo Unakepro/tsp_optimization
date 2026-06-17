@@ -1,8 +1,12 @@
 #ifndef ant_colony_optimization
 #define ant_colony_optimization
 
+#include <algorithm>
+#include <cmath>
+#include <iostream>
 #include <unordered_set>
 #include <random>
+#include <stdexcept>
 
 #include "../Cities/city.hpp"
 
@@ -64,7 +68,29 @@ void precompute_matrix(const std::vector<City>& cities, std::vector<double>& dis
 }
 
 
+void validate_aco_parameters(const std::vector<City>& cities, size_t m, double alpha, double beta, double po, size_t epochs) {
+    validate_tsp_input(cities, "Ant colony optimization");
+
+    if (m == 0) {
+        throw std::invalid_argument("Ant colony optimization parameter ants must be greater than zero.");
+    }
+    if (!std::isfinite(alpha) || alpha < 0.0) {
+        throw std::invalid_argument("Ant colony optimization parameter alpha must be finite and non-negative.");
+    }
+    if (!std::isfinite(beta) || beta < 0.0) {
+        throw std::invalid_argument("Ant colony optimization parameter beta must be finite and non-negative.");
+    }
+    if (!std::isfinite(po) || po < 0.0 || po >= 1.0) {
+        throw std::invalid_argument("Ant colony optimization parameter evaporation must be finite and between 0 and 1.");
+    }
+    if (epochs == 0) {
+        throw std::invalid_argument("Ant colony optimization parameter epochs must be greater than zero.");
+    }
+}
+
 void aco(std::vector<City>& cities, size_t m, double alpha, double beta, double po, size_t epochs, bool use_two_opt = false) {
+    validate_aco_parameters(cities, m, alpha, beta, po, epochs);
+
     size_t n = cities.size();
 
     std::vector<double> pheromons(n * n, 1);
