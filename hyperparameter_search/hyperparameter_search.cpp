@@ -3,9 +3,11 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstddef>
 #include <exception>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <iostream>
 #include <limits>
 #include <random>
@@ -15,10 +17,10 @@
 #include <unordered_map>
 #include <vector>
 
-#include "../Cities/city.hpp"
-#include "../sa/sim_an.hpp"
-#include "../genetic/genetic.hpp"
 #include "../aco/aco.hpp"
+#include "../Cities/city.hpp"
+#include "../genetic/genetic.hpp"
+#include "../sa/sim_an.hpp"
 
 namespace {
 
@@ -42,6 +44,14 @@ struct SearchStats {
     std::uint32_t first_run_seed = 0;
 };
 
+struct SearchTrial {
+    std::size_t index = 0;
+    std::uint32_t param_seed = 0;
+    std::string parameter_values;
+    std::string log_parameters;
+    std::function<void(std::vector<City>&)> solve;
+};
+
 std::filesystem::path project_root() {
     return std::filesystem::path(TSP_PROJECT_ROOT);
 }
@@ -50,16 +60,22 @@ std::string tsplib_test_file(const std::string& filename) {
     return (project_root() / "tsplib" / "tests" / filename).string();
 }
 
-std::string dataset_name(const std::string& path) {
-    const size_t slash_pos = path.find_last_of("/\\");
-    std::string name = slash_pos == std::string::npos ? path : path.substr(slash_pos + 1);
-
-    const size_t dot_pos = name.find_last_of('.');
-    if (dot_pos != std::string::npos) {
-        name = name.substr(0, dot_pos);
+std::string trim_text(const std::string& text) {
+    const auto first = text.find_first_not_of(" \t\r\n");
+    if (first == std::string::npos) {
+        return "";
     }
 
-    return name;
+    const auto last = text.find_last_not_of(" \t\r\n");
+    return text.substr(first, last - first + 1);
+}
+
+std::string dataset_name(const std::string& path) {
+    return std::filesystem::path(path).stem().string();
+}
+
+std::string dataset_filename(const std::string& path) {
+    return std::filesystem::path(path).filename().string();
 }
 
 std::unordered_map<std::string, double> load_best_known_solutions(const std::filesystem::path& filename) {
@@ -71,12 +87,12 @@ std::unordered_map<std::string, double> load_best_known_solutions(const std::fil
 
     std::string line;
     while (std::getline(file, line)) {
-        const size_t colon_pos = line.find(':');
+        const std::size_t colon_pos = line.find(':');
         if (colon_pos == std::string::npos) {
             continue;
         }
 
-        const std::string name = trim(line.substr(0, colon_pos));
+        const std::string name = trim_text(line.substr(0, colon_pos));
         std::istringstream value_stream(line.substr(colon_pos + 1));
         double value = 0.0;
         if (value_stream >> value) {
@@ -105,24 +121,28 @@ double best_known_for_dataset(const std::string& dataset) {
     return found == solutions.end() ? 0.0 : found->second;
 }
 
-std::uint32_t derive_parameter_seed(std::uint32_t base_seed, std::uint32_t algorithm_id, size_t dataset_index, size_t trial_index) {
+std::uint32_t derive_parameter_seed(std::uint32_t base_seed, std::uint32_t algorithm_id, std::size_t dataset_index, std::size_t trial_index) {
     return derive_run_seed(base_seed, algorithm_id ^ PARAM_SEED_ID, dataset_index, trial_index);
 }
 
-std::uint32_t derive_search_seed(std::uint32_t base_seed, std::uint32_t algorithm_id, size_t dataset_index, size_t trial_index, size_t repeat_index) {
+std::uint32_t derive_search_seed(std::uint32_t base_seed, std::uint32_t algorithm_id, std::size_t dataset_index, std::size_t trial_index, std::size_t repeat_index) {
     const std::uint32_t trial_seed = derive_run_seed(base_seed, algorithm_id, dataset_index, trial_index);
     return derive_run_seed(trial_seed, algorithm_id ^ PARAM_SEED_ID, repeat_index, 0);
 }
 
-template <typename Solver>
-SearchStats run_parameter_set(const std::string& file, const HyperparameterSearchConfig& config, std::uint32_t algorithm_id, size_t dataset_index, size_t trial_index, Solver solver) {
+SearchStats run_parameter_set(const std::string& file,
+                              const HyperparameterSearchConfig& config,
+                              std::uint32_t algorithm_id,
+                              std::size_t dataset_index,
+                              std::size_t trial_index,
+                              const std::function<void(std::vector<City>&)>& solver) {
     std::vector<double> costs;
-    costs.reserve(static_cast<size_t>(config.repeats));
+    costs.reserve(static_cast<std::size_t>(config.repeats));
 
     double time_sum = 0.0;
 
-    for (int r = 0; r < config.repeats; ++r) {
-        const auto run_seed = derive_search_seed(config.base_seed, algorithm_id, dataset_index, trial_index, static_cast<size_t>(r));
+    for (int repeat = 0; repeat < config.repeats; ++repeat) {
+        const auto run_seed = derive_search_seed(config.base_seed, algorithm_id, dataset_index, trial_index, static_cast<std::size_t>(repeat));
         set_random_seed(run_seed);
 
         std::vector<City> cities;
@@ -182,227 +202,273 @@ int budgeted_iterations(const HyperparameterSearchConfig& config, int work_per_i
     return std::max(1, config.evaluation_budget / work_per_iteration);
 }
 
-void random_search_sa(const std::vector<std::string>& datasets, const HyperparameterSearchConfig& config) {
-    std::ofstream out = open_search_results_file("sa_random_search.csv");
-    out << "algorithm,dataset,search_type,trial,base_seed,param_seed,first_run_seed,runs,evaluation_budget,temperature,cooling,iterations,best_cost,mean_cost,stddev_cost,mean_time_sec,best_known,gap_percent\n";
+std::string sa_values(int temperature, double cooling, int iterations) {
+    std::ostringstream values;
+    values << temperature << "," << cooling << "," << iterations;
+    return values.str();
+}
 
+std::string ga_values(int population, double mutation, int generations) {
+    std::ostringstream values;
+    values << population << "," << mutation << "," << generations;
+    return values.str();
+}
+
+std::string aco_values(int ants, double alpha, double beta, double evaporation, int iterations) {
+    std::ostringstream values;
+    values << ants << "," << alpha << "," << beta << "," << evaporation << "," << iterations;
+    return values.str();
+}
+
+std::string sa_log(int temperature, double cooling) {
+    std::ostringstream log;
+    log << "temp=" << temperature << " cool=" << cooling;
+    return log.str();
+}
+
+std::string ga_log(int population, double mutation) {
+    std::ostringstream log;
+    log << "pop=" << population << " mut=" << mutation;
+    return log.str();
+}
+
+std::string aco_log(int ants, double alpha, double beta, double evaporation) {
+    std::ostringstream log;
+    log << "ants=" << ants << " alpha=" << alpha << " beta=" << beta << " evap=" << evaporation;
+    return log.str();
+}
+
+std::vector<SearchTrial> random_sa_trials(const HyperparameterSearchConfig& config, std::size_t dataset_index) {
+    std::vector<SearchTrial> trials;
     const int random_trials = 20;
     const int iterations = config.evaluation_budget;
 
-    for (size_t dataset_index = 0; dataset_index < datasets.size(); ++dataset_index) {
-        const auto& file = datasets[dataset_index];
-        const std::string name = file.substr(file.find_last_of('/') + 1);
+    for (int t = 0; t < random_trials; ++t) {
+        const std::size_t trial_index = static_cast<std::size_t>(t);
+        const auto param_seed = derive_parameter_seed(config.base_seed, SA_SEARCH_ID, dataset_index, trial_index);
+        set_random_seed(param_seed);
 
-        for (int t = 0; t < random_trials; ++t) {
-            const auto param_seed = derive_parameter_seed(config.base_seed, SA_SEARCH_ID, dataset_index, static_cast<size_t>(t));
-            set_random_seed(param_seed);
+        std::uniform_int_distribution<> temp_dist(1000, 20000);
+        std::uniform_real_distribution<> cooling_dist(0.9999, 0.99999);
 
-            std::uniform_int_distribution<> temp_dist(1000, 20000);
-            std::uniform_real_distribution<> cooling_dist(0.9999, 0.99999);
+        const int temperature = temp_dist(gen);
+        const double cooling = cooling_dist(gen);
 
-            const int temp = temp_dist(gen);
-            const double cooling = cooling_dist(gen);
-
-            const auto stats = run_parameter_set(file, config, SA_SEARCH_ID, dataset_index, static_cast<size_t>(t), [&](std::vector<City>& cities) {
-                sa_optimization(cities, temp, 1e-3, cooling, iterations);
-            });
-
-            out << "SA," << name << ",random," << t << "," << config.base_seed << "," << param_seed << "," << stats.first_run_seed << "," << config.repeats
-                << "," << config.evaluation_budget << "," << temp << "," << cooling << "," << iterations << ",";
-            write_stats(out, stats);
-
-            std::cout << "[SA] " << name << " temp=" << temp << " cool=" << cooling
-                      << " -> best=" << stats.best_cost << ", mean=" << stats.mean_cost << ", gap=" << stats.gap_percent << "%\n";
-        }
+        trials.push_back({
+            trial_index,
+            param_seed,
+            sa_values(temperature, cooling, iterations),
+            sa_log(temperature, cooling),
+            [=](std::vector<City>& cities) { sa_optimization(cities, temperature, 1e-3, cooling, iterations); }
+        });
     }
+
+    return trials;
 }
 
-void grid_search_sa(const std::vector<std::string>& datasets, const HyperparameterSearchConfig& config) {
-    std::ofstream out = open_search_results_file("sa_grid_search.csv");
-    out << "algorithm,dataset,search_type,trial,base_seed,param_seed,first_run_seed,runs,evaluation_budget,temperature,cooling,iterations,best_cost,mean_cost,stddev_cost,mean_time_sec,best_known,gap_percent\n";
-
+std::vector<SearchTrial> grid_sa_trials(const HyperparameterSearchConfig& config, std::size_t dataset_index) {
+    std::vector<SearchTrial> trials;
     std::vector<int> start_temperatures = {1000, 5000, 10000};
     std::vector<double> cooling_rates = {0.99, 0.999, 0.9999, 0.99999};
-
     const int iterations = config.evaluation_budget;
-    for (size_t dataset_index = 0; dataset_index < datasets.size(); ++dataset_index) {
-        const auto& file = datasets[dataset_index];
-        const std::string name = file.substr(file.find_last_of('/') + 1);
-        size_t trial_index = 0;
+    std::size_t trial_index = 0;
 
-        for (auto temp: start_temperatures) {
-            for (double cool_rate: cooling_rates) {
-                const auto param_seed = derive_parameter_seed(config.base_seed, SA_SEARCH_ID, dataset_index, trial_index);
+    for (int temperature: start_temperatures) {
+        for (double cooling: cooling_rates) {
+            const auto param_seed = derive_parameter_seed(config.base_seed, SA_SEARCH_ID, dataset_index, trial_index);
 
-                const auto stats = run_parameter_set(file, config, SA_SEARCH_ID, dataset_index, trial_index, [&](std::vector<City>& cities) {
-                    sa_optimization(cities, temp, 1e-3, cool_rate, iterations);
-                });
-
-                out << "SA," << name << ",grid," << trial_index << "," << config.base_seed << "," << param_seed << "," << stats.first_run_seed << "," << config.repeats
-                    << "," << config.evaluation_budget << "," << temp << "," << cool_rate << "," << iterations << ",";
-                write_stats(out, stats);
-
-                std::cout << "[SA] " << name << " temp=" << temp << " cool=" << cool_rate
-                          << " -> best=" << stats.best_cost << ", mean=" << stats.mean_cost << ", gap=" << stats.gap_percent << "%\n";
-
-                ++trial_index;
-            }
-        }
-    }
-}
-
-void random_search_genetic(const std::vector<std::string>& datasets, const HyperparameterSearchConfig& config) {
-    std::ofstream out = open_search_results_file("ga_random_search.csv");
-    out << "algorithm,dataset,search_type,trial,base_seed,param_seed,first_run_seed,runs,evaluation_budget,population,mutation,generations,best_cost,mean_cost,stddev_cost,mean_time_sec,best_known,gap_percent\n";
-
-    const int random_trials = 20;
-
-    for (size_t dataset_index = 0; dataset_index < datasets.size(); ++dataset_index) {
-        const auto& file = datasets[dataset_index];
-        const std::string name = file.substr(file.find_last_of('/') + 1);
-
-        for (int t = 0; t < random_trials; ++t) {
-            const auto param_seed = derive_parameter_seed(config.base_seed, GA_SEARCH_ID, dataset_index, static_cast<size_t>(t));
-            set_random_seed(param_seed);
-
-            std::uniform_int_distribution<> pop_dist(10, 100);
-            std::uniform_real_distribution<> mutation_dist(0.01, 0.1);
-
-            const int pop = pop_dist(gen);
-            const double mut = mutation_dist(gen);
-            const int generations = budgeted_iterations(config, pop);
-
-            const auto stats = run_parameter_set(file, config, GA_SEARCH_ID, dataset_index, static_cast<size_t>(t), [&](std::vector<City>& cities) {
-                genetic_optimization(cities, mut, pop, generations);
+            trials.push_back({
+                trial_index,
+                param_seed,
+                sa_values(temperature, cooling, iterations),
+                sa_log(temperature, cooling),
+                [=](std::vector<City>& cities) { sa_optimization(cities, temperature, 1e-3, cooling, iterations); }
             });
 
-            out << "GA," << name << ",random," << t << "," << config.base_seed << "," << param_seed << "," << stats.first_run_seed << "," << config.repeats
-                << "," << config.evaluation_budget << "," << pop << "," << mut << "," << generations << ",";
-            write_stats(out, stats);
-
-            std::cout << "[GA] " << name << " pop=" << pop << " mut=" << mut
-                      << " -> best=" << stats.best_cost << ", mean=" << stats.mean_cost << ", gap=" << stats.gap_percent << "%\n";
+            ++trial_index;
         }
     }
+
+    return trials;
 }
 
-void grid_search_genetic(const std::vector<std::string>& datasets, const HyperparameterSearchConfig& config) {
-    std::ofstream out = open_search_results_file("ga_grid_search.csv");
-    out << "algorithm,dataset,search_type,trial,base_seed,param_seed,first_run_seed,runs,evaluation_budget,population,mutation,generations,best_cost,mean_cost,stddev_cost,mean_time_sec,best_known,gap_percent\n";
+std::vector<SearchTrial> random_genetic_trials(const HyperparameterSearchConfig& config, std::size_t dataset_index) {
+    std::vector<SearchTrial> trials;
+    const int random_trials = 20;
 
+    for (int t = 0; t < random_trials; ++t) {
+        const std::size_t trial_index = static_cast<std::size_t>(t);
+        const auto param_seed = derive_parameter_seed(config.base_seed, GA_SEARCH_ID, dataset_index, trial_index);
+        set_random_seed(param_seed);
+
+        std::uniform_int_distribution<> pop_dist(10, 100);
+        std::uniform_real_distribution<> mutation_dist(0.01, 0.1);
+
+        const int population = pop_dist(gen);
+        const double mutation = mutation_dist(gen);
+        const int generations = budgeted_iterations(config, population);
+
+        trials.push_back({
+            trial_index,
+            param_seed,
+            ga_values(population, mutation, generations),
+            ga_log(population, mutation),
+            [=](std::vector<City>& cities) { genetic_optimization(cities, mutation, population, generations); }
+        });
+    }
+
+    return trials;
+}
+
+std::vector<SearchTrial> grid_genetic_trials(const HyperparameterSearchConfig& config, std::size_t dataset_index) {
+    std::vector<SearchTrial> trials;
     std::vector<int> populations = {10, 50, 100};
     std::vector<double> mutation_rates = {0.01, 0.05, 0.1};
+    std::size_t trial_index = 0;
 
-    for (size_t dataset_index = 0; dataset_index < datasets.size(); ++dataset_index) {
-        const auto& file = datasets[dataset_index];
-        const std::string name = file.substr(file.find_last_of('/') + 1);
-        size_t trial_index = 0;
+    for (int population: populations) {
+        for (double mutation: mutation_rates) {
+            const auto param_seed = derive_parameter_seed(config.base_seed, GA_SEARCH_ID, dataset_index, trial_index);
+            const int generations = budgeted_iterations(config, population);
 
-        for (auto pop: populations) {
-            for (double mut: mutation_rates) {
-                const auto param_seed = derive_parameter_seed(config.base_seed, GA_SEARCH_ID, dataset_index, trial_index);
-                const int generations = budgeted_iterations(config, pop);
+            trials.push_back({
+                trial_index,
+                param_seed,
+                ga_values(population, mutation, generations),
+                ga_log(population, mutation),
+                [=](std::vector<City>& cities) { genetic_optimization(cities, mutation, population, generations); }
+            });
 
-                const auto stats = run_parameter_set(file, config, GA_SEARCH_ID, dataset_index, trial_index, [&](std::vector<City>& cities) {
-                    genetic_optimization(cities, mut, pop, generations);
-                });
-
-                out << "GA," << name << ",grid," << trial_index << "," << config.base_seed << "," << param_seed << "," << stats.first_run_seed << "," << config.repeats
-                    << "," << config.evaluation_budget << "," << pop << "," << mut << "," << generations << ",";
-                write_stats(out, stats);
-
-                std::cout << "[GA] " << name << " pop=" << pop << " mut=" << mut
-                          << " -> best=" << stats.best_cost << ", mean=" << stats.mean_cost << ", gap=" << stats.gap_percent << "%\n";
-
-                ++trial_index;
-            }
+            ++trial_index;
         }
     }
+
+    return trials;
 }
 
-void grid_search_aco(const std::vector<std::string>& datasets, const HyperparameterSearchConfig& config) {
-    std::ofstream out = open_search_results_file("aco_grid_search.csv");
-    out << "algorithm,dataset,search_type,trial,base_seed,param_seed,first_run_seed,runs,evaluation_budget,ants,alpha,beta,evaporation,iterations,best_cost,mean_cost,stddev_cost,mean_time_sec,best_known,gap_percent\n";
+std::vector<SearchTrial> random_aco_trials(const HyperparameterSearchConfig& config, std::size_t dataset_index) {
+    std::vector<SearchTrial> trials;
+    const int random_trials = 10;
 
+    for (int t = 0; t < random_trials; ++t) {
+        const std::size_t trial_index = static_cast<std::size_t>(t);
+        const auto param_seed = derive_parameter_seed(config.base_seed, ACO_SEARCH_ID, dataset_index, trial_index);
+        set_random_seed(param_seed);
+
+        std::uniform_int_distribution<> ants_dist(10, 40);
+        std::uniform_real_distribution<> alpha_dist(1.0, 2.0);
+        std::uniform_real_distribution<> beta_dist(3.0, 7.0);
+        std::uniform_real_distribution<> evap_dist(0.1, 0.5);
+
+        const int ants = ants_dist(gen);
+        const double alpha = alpha_dist(gen);
+        const double beta = beta_dist(gen);
+        const double evaporation = evap_dist(gen);
+        const int iterations = budgeted_iterations(config, ants);
+
+        trials.push_back({
+            trial_index,
+            param_seed,
+            aco_values(ants, alpha, beta, evaporation, iterations),
+            aco_log(ants, alpha, beta, evaporation),
+            [=](std::vector<City>& cities) { aco(cities, ants, alpha, beta, evaporation, iterations); }
+        });
+    }
+
+    return trials;
+}
+
+std::vector<SearchTrial> grid_aco_trials(const HyperparameterSearchConfig& config, std::size_t dataset_index) {
+    std::vector<SearchTrial> trials;
     std::vector<int> ants_list = {10, 20, 40};
     std::vector<double> alpha_list = {1.0, 1.5};
     std::vector<double> beta_list = {3.0, 5.0};
     std::vector<double> evap_list = {0.1, 0.3, 0.5};
+    std::size_t trial_index = 0;
 
-    for (size_t dataset_index = 0; dataset_index < datasets.size(); ++dataset_index) {
-        const auto& file = datasets[dataset_index];
-        const std::string name = file.substr(file.find_last_of('/') + 1);
-        size_t trial_index = 0;
+    for (int ants: ants_list) {
+        for (double alpha: alpha_list) {
+            for (double beta: beta_list) {
+                for (double evaporation: evap_list) {
+                    const auto param_seed = derive_parameter_seed(config.base_seed, ACO_SEARCH_ID, dataset_index, trial_index);
+                    const int iterations = budgeted_iterations(config, ants);
 
-        for (int ants: ants_list) {
-            for (double alpha: alpha_list) {
-                for (double beta: beta_list) {
-                    for (double evap: evap_list) {
-                        const auto param_seed = derive_parameter_seed(config.base_seed, ACO_SEARCH_ID, dataset_index, trial_index);
-                        const int iterations = budgeted_iterations(config, ants);
+                    trials.push_back({
+                        trial_index,
+                        param_seed,
+                        aco_values(ants, alpha, beta, evaporation, iterations),
+                        aco_log(ants, alpha, beta, evaporation),
+                        [=](std::vector<City>& cities) { aco(cities, ants, alpha, beta, evaporation, iterations); }
+                    });
 
-                        const auto stats = run_parameter_set(file, config, ACO_SEARCH_ID, dataset_index, trial_index, [&](std::vector<City>& cities) {
-                            aco(cities, ants, alpha, beta, evap, iterations);
-                        });
-
-                        out << "ACO," << name << ",grid," << trial_index << "," << config.base_seed << "," << param_seed << "," << stats.first_run_seed << "," << config.repeats
-                            << "," << config.evaluation_budget << "," << ants << "," << alpha << "," << beta << "," << evap << "," << iterations << ",";
-                        write_stats(out, stats);
-
-                        std::cout << "[ACO] " << name << " ants=" << ants
-                                  << " alpha=" << alpha << " beta=" << beta << " evap=" << evap
-                                  << " -> best=" << stats.best_cost << ", mean=" << stats.mean_cost << ", gap=" << stats.gap_percent << "%\n";
-
-                        ++trial_index;
-                    }
+                    ++trial_index;
                 }
             }
         }
     }
+
+    return trials;
 }
 
-void random_search_aco(const std::vector<std::string>& datasets, const HyperparameterSearchConfig& config) {
-    std::ofstream out = open_search_results_file("aco_random_search.csv");
-    out << "algorithm,dataset,search_type,trial,base_seed,param_seed,first_run_seed,runs,evaluation_budget,ants,alpha,beta,evaporation,iterations,best_cost,mean_cost,stddev_cost,mean_time_sec,best_known,gap_percent\n";
+template <typename TrialFactory>
+void run_search(const std::vector<std::string>& datasets,
+                const HyperparameterSearchConfig& config,
+                const std::string& output_file,
+                const std::string& algorithm,
+                const std::string& search_type,
+                std::uint32_t algorithm_id,
+                const std::string& parameter_header,
+                TrialFactory make_trials) {
+    std::ofstream out = open_search_results_file(output_file);
+    out << "algorithm,dataset,search_type,trial,base_seed,param_seed,first_run_seed,runs,evaluation_budget,"
+        << parameter_header << ",best_cost,mean_cost,stddev_cost,mean_time_sec,best_known,gap_percent\n";
 
-    const int trials = 10;
-
-    for (size_t dataset_index = 0; dataset_index < datasets.size(); ++dataset_index) {
+    for (std::size_t dataset_index = 0; dataset_index < datasets.size(); ++dataset_index) {
         const auto& file = datasets[dataset_index];
-        const std::string name = file.substr(file.find_last_of('/') + 1);
+        const std::string name = dataset_filename(file);
+        const auto trials = make_trials(config, dataset_index);
 
-        for (int t = 0; t < trials; ++t) {
-            const auto param_seed = derive_parameter_seed(config.base_seed, ACO_SEARCH_ID, dataset_index, static_cast<size_t>(t));
-            set_random_seed(param_seed);
+        for (const auto& trial: trials) {
+            const auto stats = run_parameter_set(file, config, algorithm_id, dataset_index, trial.index, trial.solve);
 
-            std::uniform_int_distribution<> ants_dist(10, 40);
-            std::uniform_real_distribution<> alpha_dist(1.0, 2);
-            std::uniform_real_distribution<> beta_dist(3.0, 7.0);
-            std::uniform_real_distribution<> evap_dist(0.1, 0.5);
-
-            const int ants = ants_dist(gen);
-            const double alpha = alpha_dist(gen);
-            const double beta = beta_dist(gen);
-            const double evap = evap_dist(gen);
-            const int iterations = budgeted_iterations(config, ants);
-
-            const auto stats = run_parameter_set(file, config, ACO_SEARCH_ID, dataset_index, static_cast<size_t>(t), [&](std::vector<City>& cities) {
-                aco(cities, ants, alpha, beta, evap, iterations);
-            });
-
-            out << "ACO," << name << ",random," << t << "," << config.base_seed << "," << param_seed << "," << stats.first_run_seed << "," << config.repeats
-                << "," << config.evaluation_budget << "," << ants << "," << alpha << "," << beta << "," << evap << "," << iterations << ",";
+            out << algorithm << "," << name << "," << search_type << "," << trial.index << "," << config.base_seed
+                << "," << trial.param_seed << "," << stats.first_run_seed << "," << config.repeats
+                << "," << config.evaluation_budget << "," << trial.parameter_values << ",";
             write_stats(out, stats);
 
-            std::cout << "[ACO] " << name << " ants=" << ants
-                      << " alpha=" << alpha << " beta=" << beta << " evap=" << evap
-                      << " -> best=" << stats.best_cost << ", mean=" << stats.mean_cost << ", gap=" << stats.gap_percent << "%\n";
+            std::cout << "[" << algorithm << "] " << name << " " << trial.log_parameters
+                      << " -> best=" << stats.best_cost << ", mean=" << stats.mean_cost
+                      << ", gap=" << stats.gap_percent << "%\n";
         }
     }
 }
 
+void random_search_sa(const std::vector<std::string>& datasets, const HyperparameterSearchConfig& config) {
+    run_search(datasets, config, "sa_random_search.csv", "SA", "random", SA_SEARCH_ID, "temperature,cooling,iterations", random_sa_trials);
+}
+
+void grid_search_sa(const std::vector<std::string>& datasets, const HyperparameterSearchConfig& config) {
+    run_search(datasets, config, "sa_grid_search.csv", "SA", "grid", SA_SEARCH_ID, "temperature,cooling,iterations", grid_sa_trials);
+}
+
+void random_search_genetic(const std::vector<std::string>& datasets, const HyperparameterSearchConfig& config) {
+    run_search(datasets, config, "ga_random_search.csv", "GA", "random", GA_SEARCH_ID, "population,mutation,generations", random_genetic_trials);
+}
+
+void grid_search_genetic(const std::vector<std::string>& datasets, const HyperparameterSearchConfig& config) {
+    run_search(datasets, config, "ga_grid_search.csv", "GA", "grid", GA_SEARCH_ID, "population,mutation,generations", grid_genetic_trials);
+}
+
+void random_search_aco(const std::vector<std::string>& datasets, const HyperparameterSearchConfig& config) {
+    run_search(datasets, config, "aco_random_search.csv", "ACO", "random", ACO_SEARCH_ID, "ants,alpha,beta,evaporation,iterations", random_aco_trials);
+}
+
+void grid_search_aco(const std::vector<std::string>& datasets, const HyperparameterSearchConfig& config) {
+    run_search(datasets, config, "aco_grid_search.csv", "ACO", "grid", ACO_SEARCH_ID, "ants,alpha,beta,evaporation,iterations", grid_aco_trials);
+}
+
 std::uint32_t parse_seed_argument(const std::string& text) {
-    size_t parsed_chars = 0;
+    std::size_t parsed_chars = 0;
     unsigned long seed_value = 0;
     try {
         seed_value = std::stoul(text, &parsed_chars);
@@ -418,7 +484,7 @@ std::uint32_t parse_seed_argument(const std::string& text) {
 }
 
 int parse_repeats_argument(const std::string& text) {
-    size_t parsed_chars = 0;
+    std::size_t parsed_chars = 0;
     int parsed_repeats = 0;
     try {
         parsed_repeats = std::stoi(text, &parsed_chars);
@@ -434,7 +500,7 @@ int parse_repeats_argument(const std::string& text) {
 }
 
 int parse_evaluation_budget_argument(const std::string& text) {
-    size_t parsed_chars = 0;
+    std::size_t parsed_chars = 0;
     int parsed_budget = 0;
     try {
         parsed_budget = std::stoi(text, &parsed_chars);
