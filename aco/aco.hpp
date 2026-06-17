@@ -133,7 +133,12 @@ void aco(std::vector<City>& cities, size_t m, double alpha, double beta, double 
                 pheromons[idx(from, to, n)] += delta_pheromone;
                 pheromons[idx(to, from, n)] += delta_pheromone;
             }
-    
+
+            int from = ant_pathes[j].back().id - 1;
+            int to = ant_pathes[j].front().id - 1;
+
+            pheromons[idx(from, to, n)] += delta_pheromone;
+            pheromons[idx(to, from, n)] += delta_pheromone;
         }
 
         if(use_two_opt) {
@@ -145,8 +150,7 @@ void aco(std::vector<City>& cities, size_t m, double alpha, double beta, double 
         }
 
         if(i % 50 == 0) {
-        std::cout << "Iteration: " << i << "  Best so far " << total_cost(curr_best) << std::endl;
-
+            std::cout << "Iteration: " << i << "  Best so far " << total_cost(curr_best) << std::endl;
         }
     }
 

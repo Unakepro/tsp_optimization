@@ -97,19 +97,32 @@ inline int idx(int i, int j, int n) {
 }
 
 void apply_two_opt(std::vector<City>& path, const std::vector<double>& distance_matrix) {
+    const size_t n = path.size();
+    if (n < 4) {
+        return;
+    }
+
     bool improved = true;
-    size_t n = path.size();
 
     while (improved) {
         improved = false;
-        for (size_t i = 1; i < n - 1; ++i) {
-            for (size_t j = i + 1; j < n - 1; ++j) {   
-                if (j - i == 1) continue;
 
-                double d1 = distance_matrix[idx(path[i - 1].id-1, path[i].id-1, n)] + distance_matrix[idx(path[j].id-1, path[j+1].id-1, n)];
-                double d2 = distance_matrix[idx(path[i - 1].id-1, path[j].id-1, n)] + distance_matrix[idx(path[i].id-1, path[j+1].id-1, n)];
-                
-                if (d2 < d1) {
+        for (size_t i = 1; i < n - 1; ++i) {
+            for (size_t j = i + 1; j < n; ++j) {
+                const size_t next_j = (j + 1) % n;
+
+                int a = path[i - 1].id - 1;
+                int b = path[i].id - 1;
+                int c = path[j].id - 1;
+                int d = path[next_j].id - 1;
+
+                double old_cost = distance_matrix[idx(a, b, n)] +
+                                  distance_matrix[idx(c, d, n)];
+
+                double new_cost = distance_matrix[idx(a, c, n)] +
+                                  distance_matrix[idx(b, d, n)];
+
+                if (new_cost < old_cost) {
                     std::reverse(path.begin() + i, path.begin() + j + 1);
                     improved = true;
                 }
@@ -234,6 +247,8 @@ void readfile(std::vector<City>& cities, const std::string& filename) {
             throw std::runtime_error("Non-finite city coordinate in " + filename + " for city id " + std::to_string(city.id));
         }
     }
+
+    std::sort(parsed_cities.begin(), parsed_cities.end());
 
     cities = std::move(parsed_cities);
 }
