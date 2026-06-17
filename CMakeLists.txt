@@ -10,9 +10,12 @@ set(CMAKE_CXX_FLAGS_DEBUG "-O0 -g")
 set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG")
 
 add_executable(tsp_optimization main.cpp)
+add_executable(tsp_hyperparameter_search hyperparameter_search/hyperparameter_search.cpp)
 
-target_compile_options(tsp_optimization PRIVATE
-    -Wall
-    -Wextra
-    -Wpedantic
-)
+foreach(target tsp_optimization tsp_hyperparameter_search)
+    target_compile_options(${target} PRIVATE
+        -Wall
+        -Wextra
+        -Wpedantic
+    )
+endforeach()
