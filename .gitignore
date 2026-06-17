@@ -1,6 +1,22 @@
-.vscode
-*.out
-*.csv
+.DS_Store
 *.DS_Store
-venv
-results
+.vscode/
+.idea/
+
+# Build outputs
+build/
+cmake-build-*/
+CMakeFiles/
+CMakeCache.txt
+*.o
+*.obj
+*.out
+
+# Generated benchmark/search outputs
+results/
+search_results/
+*_results
+*_results_*
+*.csv
+
+venv/
