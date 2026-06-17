@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <fstream>
 #include <iostream>
 #include <random>
@@ -13,8 +14,20 @@
 #include <utility>
 #include <vector>
 
-inline std::random_device rd;
-inline std::mt19937 gen(rd());
+inline constexpr std::uint32_t DEFAULT_RANDOM_SEED = 42;
+inline std::mt19937 gen(DEFAULT_RANDOM_SEED);
+
+inline void set_random_seed(std::uint32_t seed) {
+    gen.seed(seed);
+}
+
+inline std::uint32_t derive_run_seed(std::uint32_t base_seed, std::uint32_t algorithm_id, std::size_t dataset_index, std::size_t repeat_index) {
+    std::uint32_t seed = base_seed;
+    seed ^= algorithm_id + 0x9e3779b9u + (seed << 6) + (seed >> 2);
+    seed ^= static_cast<std::uint32_t>(dataset_index) + 0x9e3779b9u + (seed << 6) + (seed >> 2);
+    seed ^= static_cast<std::uint32_t>(repeat_index) + 0x9e3779b9u + (seed << 6) + (seed >> 2);
+    return seed;
+}
 
 
 struct City {
