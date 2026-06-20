@@ -1,0 +1,4 @@
+# Medium benchmark instances (~130-280 cities)
+ch130
+d198
+a280

@@ -1,0 +1,4 @@
+# Small benchmark instances (~50-100 cities)
+berlin52
+eil76
+kroB100

@@ -1,0 +1,7 @@
+# Large benchmark instances (~400-1200 cities)
+rd400
+u574
+rat783
+pr1002
+vm1084
+pcb1173
