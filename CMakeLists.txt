@@ -12,31 +12,40 @@ set(CMAKE_CXX_FLAGS_DEBUG "-O0 -g")
 set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG")
 
 add_library(tsp_core
-    Cities/city.cpp
-    sa/sim_an.cpp
-    genetic/genetic.cpp
-    aco/aco.cpp
+    core/config.cpp
+    core/tsp.cpp
+    core/datasets.cpp
+    algorithms/sa.cpp
+    algorithms/genetic.cpp
+    algorithms/aco.cpp
 )
+target_include_directories(tsp_core PUBLIC ${PROJECT_SOURCE_DIR})
+target_compile_definitions(tsp_core PRIVATE TSP_PROJECT_ROOT="${PROJECT_SOURCE_DIR}")
 
-add_executable(tsp_optimization main.cpp)
-target_link_libraries(tsp_optimization PRIVATE tsp_core)
-target_compile_definitions(tsp_optimization PRIVATE
-    TSP_PROJECT_ROOT="${PROJECT_SOURCE_DIR}"
+add_executable(tsp_optimizer
+    main.cpp
+    benchmark/benchmark.cpp
 )
-
-add_executable(tsp_hyperparameter_search hyperparameter_search/hyperparameter_search.cpp)
-target_link_libraries(tsp_hyperparameter_search PRIVATE tsp_core)
-target_compile_definitions(tsp_hyperparameter_search PRIVATE
-    TSP_PROJECT_ROOT="${PROJECT_SOURCE_DIR}"
-)
+target_link_libraries(tsp_optimizer PRIVATE tsp_core)
 
 if(BUILD_TESTING)
     add_executable(tsp_tests tests/tsp_tests.cpp)
     target_link_libraries(tsp_tests PRIVATE tsp_core)
     add_test(NAME tsp_tests COMMAND tsp_tests)
+    add_test(NAME cli_rejects_duplicate_flags
+        COMMAND tsp_optimizer --benchmark-mode timed --set small --algorithm ga
+                              --params default --time-limit 1s --seed 1 --seed 2)
+    add_test(NAME cli_rejects_flag_as_value
+        COMMAND tsp_optimizer --benchmark-mode timed --set small --algorithm ga
+                              --params default --time-limit --seed)
+    add_test(NAME cli_rejects_bad_two_opt
+        COMMAND tsp_optimizer --benchmark-mode timed --set small --algorithm ga
+                              --params default --time-limit 1s --two-opt maybe)
+    set_tests_properties(cli_rejects_duplicate_flags cli_rejects_flag_as_value cli_rejects_bad_two_opt
+        PROPERTIES WILL_FAIL TRUE)
 endif()
 
-set(TSP_TARGETS tsp_core tsp_optimization tsp_hyperparameter_search)
+set(TSP_TARGETS tsp_core tsp_optimizer)
 if(BUILD_TESTING)
     list(APPEND TSP_TARGETS tsp_tests)
 endif()

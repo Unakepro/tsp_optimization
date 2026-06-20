@@ -1,370 +1,225 @@
-#include <algorithm>
-#include <chrono>
-#include <cmath>
 #include <cstdint>
-#include <exception>
-#include <filesystem>
-#include <fstream>
+#include <initializer_list>
 #include <iostream>
 #include <limits>
-#include <sstream>
+#include <map>
 #include <stdexcept>
 #include <string>
-#include <vector>
 
-#include "aco/aco.hpp"
-#include "genetic/genetic.hpp"
-#include "sa/sim_an.hpp"
+#include "benchmark/benchmark.hpp"
+#include "core/datasets.hpp"
 
-constexpr std::uint32_t ACO_SEED_ID = 0xA0C0;
-constexpr std::uint32_t GA_SEED_ID = 0x6A;
-constexpr std::uint32_t SA_SEED_ID = 0x5A;
-constexpr int BUDGET_BENCHMARK_REPEATS = 30;
-constexpr int FULL_BENCHMARK_REPEATS = 5;
-constexpr std::size_t BUDGET_EVALUATION_BUDGET = 100000;
-const std::filesystem::path RESULTS_DIR = "results";
+namespace {
 
-#ifndef TSP_PROJECT_ROOT
-#define TSP_PROJECT_ROOT "."
-#endif
+const char* USAGE =
+    "TSP Optimizer — compare Simulated Annealing, Genetic Algorithm and Ant Colony Optimization.\n"
+    "\n"
+    "Usage:\n"
+    "  tsp_optimizer --benchmark-mode timed --set small|medium|large|huge --time-limit 10s\n"
+    "                [--algorithm sa|ga|aco|all] [--params default|custom]\n"
+    "                [--config FILE] [--two-opt true|false]\n"
+    "                [--label NAME] [--seed N] [--repeats N]\n"
+    "  tsp_optimizer --benchmark-mode stable --set small|medium|large|huge\n"
+    "                [--algorithm sa|ga|aco|all] [--params default|custom]\n"
+    "                [--config FILE] [--two-opt true|false]\n"
+    "                [--min-iters 50] [--window 25] [--epsilon 0.0001]\n"
+    "                [--plateau-time 60s] [--max-iters N]\n"
+    "                (for SA, iters mean completed annealing restarts)\n"
+    "                [--label NAME] [--seed N] [--repeats N]\n"
+    "\n"
+    "Examples:\n"
+    "  tsp_optimizer --benchmark-mode timed --set medium --time-limit 10s "
+    "--algorithm all --params default\n"
+    "  tsp_optimizer --benchmark-mode stable --set large --algorithm all "
+    "--params default\n";
 
-enum class BenchmarkMode {
-    Budget,
-    Full
-};
+using Args = std::map<std::string, std::string>;
 
-struct MainConfig {
-    std::uint32_t base_seed = DEFAULT_RANDOM_SEED;
-    BenchmarkMode mode = BenchmarkMode::Budget;
-};
-
-struct BenchmarkStats {
-    double min_cost = std::numeric_limits<double>::max();
-    double avg_cost = 0.0;
-    double stddev_cost = 0.0;
-    double avg_time = 0.0;
-};
-
-std::size_t budgeted_iterations(std::size_t evaluation_budget, std::size_t work_per_iteration) {
-    if (evaluation_budget == 0 || work_per_iteration == 0) {
-        throw std::invalid_argument("evaluation budget and work per iteration must be positive");
+Args parse_args(int argc, char* argv[]) {
+    Args args;
+    for (int i = 1; i < argc; ++i) {
+        std::string flag = argv[i];
+        if (flag == "--help" || flag == "-h") {
+            args["help"] = "true";
+            continue;
+        }
+        if (flag.rfind("--", 0) != 0) {
+            throw std::invalid_argument("unexpected argument: " + flag);
+        }
+        if (i + 1 >= argc || std::string(argv[i + 1]).rfind("--", 0) == 0) {
+            throw std::invalid_argument("missing value for " + flag);
+        }
+        const std::string key = flag.substr(2);
+        if (args.find(key) != args.end()) {
+            throw std::invalid_argument("duplicate option " + flag);
+        }
+        args[key] = argv[++i];
     }
-
-    return std::max<std::size_t>(1, evaluation_budget / work_per_iteration);
+    return args;
 }
 
-std::filesystem::path project_root() {
-    return std::filesystem::path(TSP_PROJECT_ROOT);
+bool has(const Args& args, const std::string& key) {
+    return args.find(key) != args.end();
 }
 
-std::string tsplib_test_file(const std::string& filename) {
-    return (project_root() / "tsplib" / "tests" / filename).string();
+std::string get(const Args& args, const std::string& key, const std::string& fallback) {
+    const auto found = args.find(key);
+    return found == args.end() ? fallback : found->second;
 }
 
-double cooling_rate_for_budget(double start_temp, double end_temp, std::size_t steps) {
-    if (steps == 0) {
-        throw std::invalid_argument("SA steps must be positive");
+std::string require(const Args& args, const std::string& key) {
+    const auto found = args.find(key);
+    if (found == args.end()) {
+        throw std::invalid_argument("missing required option --" + key);
     }
-    if (!std::isfinite(start_temp) || !std::isfinite(end_temp) || start_temp <= 0.0 || end_temp <= 0.0 || end_temp >= start_temp) {
-        throw std::invalid_argument("SA temperatures must be finite, positive, and decreasing");
+    return found->second;
+}
+
+void reject_unknown_args(const Args& args, std::initializer_list<const char*> allowed) {
+    for (const auto& item: args) {
+        const auto& key = item.first;
+        bool known = false;
+        for (const char* allowed_key: allowed) {
+            if (key == allowed_key) {
+                known = true;
+                break;
+            }
+        }
+        if (!known) {
+            throw std::invalid_argument("unknown option --" + key);
+        }
     }
-
-    return std::exp(std::log(end_temp / start_temp) / static_cast<double>(steps));
 }
 
-std::ofstream open_results_file(const std::string& filename) {
-    std::filesystem::create_directories(RESULTS_DIR);
-    const auto output_path = RESULTS_DIR / filename;
-
-    std::ofstream out(output_path);
-    if (!out.is_open()) {
-        throw std::runtime_error("failed to open results file: " + output_path.string());
-    }
-
-    return out;
-}
-
-std::string dataset_filename(const std::string& file) {
-    return std::filesystem::path(file).filename().string();
-}
-
-std::uint32_t parse_seed_text(const std::string& seed_text) {
-    std::size_t parsed_chars = 0;
-    unsigned long seed_value = 0;
+int parse_int(const std::string& text, const std::string& name) {
     try {
-        seed_value = std::stoul(seed_text, &parsed_chars);
+        std::size_t used = 0;
+        const long value = std::stol(text, &used);
+        if (used != text.size() || value <= 0 || value > std::numeric_limits<int>::max()) {
+            throw std::invalid_argument("bad");
+        }
+        return static_cast<int>(value);
     } catch (const std::exception&) {
-        throw std::invalid_argument("Seed must be an unsigned 32-bit integer.");
-    }
-
-    if (parsed_chars != seed_text.size() || seed_value > std::numeric_limits<std::uint32_t>::max()) {
-        throw std::invalid_argument("Seed must be an unsigned 32-bit integer.");
-    }
-
-    return static_cast<std::uint32_t>(seed_value);
-}
-
-BenchmarkMode parse_mode_text(const std::string& mode_text) {
-    if (mode_text == "budget") {
-        return BenchmarkMode::Budget;
-    }
-    if (mode_text == "full") {
-        return BenchmarkMode::Full;
-    }
-
-    throw std::invalid_argument("Mode must be either budget or full.");
-}
-
-std::string mode_name(BenchmarkMode mode) {
-    return mode == BenchmarkMode::Budget ? "budget" : "full";
-}
-
-MainConfig parse_arguments(int argc, char* argv[]) {
-    if (argc > 3) {
-        throw std::invalid_argument("Usage: tsp_optimization [seed] [budget|full]");
-    }
-
-    MainConfig config;
-    if (argc >= 2) {
-        config.base_seed = parse_seed_text(argv[1]);
-    }
-    if (argc >= 3) {
-        config.mode = parse_mode_text(argv[2]);
-    }
-
-    return config;
-}
-
-template <typename Solver>
-BenchmarkStats run_repeated_benchmark(const std::string& file, std::size_t dataset_index, std::uint32_t base_seed, std::uint32_t algorithm_id, int repeats, Solver solver) {
-    BenchmarkStats stats;
-    std::vector<double> costs;
-    costs.reserve(static_cast<std::size_t>(repeats));
-    double cost_sum = 0.0;
-    double time_sum = 0.0;
-
-    for (int repeat = 0; repeat < repeats; ++repeat) {
-        set_random_seed(derive_run_seed(base_seed, algorithm_id, dataset_index, static_cast<std::size_t>(repeat)));
-
-        std::vector<City> cities;
-        readfile(cities, file);
-
-        const auto start = std::chrono::high_resolution_clock::now();
-        solver(cities);
-        const auto end = std::chrono::high_resolution_clock::now();
-
-        const double cost = total_cost(cities);
-        stats.min_cost = std::min(stats.min_cost, cost);
-        costs.push_back(cost);
-        cost_sum += cost;
-        time_sum += std::chrono::duration<double>(end - start).count();
-    }
-
-    stats.avg_cost = cost_sum / repeats;
-    stats.avg_time = time_sum / repeats;
-
-    double variance_sum = 0.0;
-    for (double cost: costs) {
-        const double diff = cost - stats.avg_cost;
-        variance_sum += diff * diff;
-    }
-    stats.stddev_cost = std::sqrt(variance_sum / repeats);
-
-    return stats;
-}
-
-template <typename Solver, typename RowPrefix, typename LogResult>
-void run_benchmark(const std::string& filename,
-                   const std::vector<std::string>& datasets,
-                   const std::string& csv_header,
-                   std::uint32_t algorithm_id,
-                   std::uint32_t base_seed,
-                   int repeats,
-                   Solver solver,
-                   RowPrefix row_prefix,
-                   LogResult log_result) {
-    std::ofstream out = open_results_file(filename);
-    out << csv_header << "\n";
-
-    for (std::size_t dataset_index = 0; dataset_index < datasets.size(); ++dataset_index) {
-        const auto& file = datasets[dataset_index];
-        const std::string name = dataset_filename(file);
-        const auto stats = run_repeated_benchmark(file, dataset_index, base_seed, algorithm_id, repeats, solver);
-        const std::string prefix = row_prefix(name);
-
-        out << prefix << ",avg," << stats.avg_cost << "," << stats.avg_time << "\n";
-        out << prefix << ",min," << stats.min_cost << "," << stats.avg_time << "\n";
-        out << prefix << ",stddev," << stats.stddev_cost << "," << stats.avg_time << "\n";
-
-        log_result(name, stats);
+        throw std::invalid_argument(name + " must be a positive integer");
     }
 }
 
-void run_tests_aco(const std::string& filename,
-                   const std::vector<std::string>& datasets,
-                   std::size_t ants,
-                   double alpha,
-                   double beta,
-                   double evap,
-                   std::size_t evaluation_budget,
-                   std::uint32_t base_seed,
-                   int repeats,
-                   BenchmarkMode mode,
-                   bool use_two_opt) {
-    const std::size_t epochs = budgeted_iterations(evaluation_budget, ants);
-
-    auto row_prefix = [=](const std::string& name) {
-        std::ostringstream row;
-        row << "ACO," << mode_name(mode) << "," << name << "," << base_seed << "," << repeats << "," << ants << "," << alpha << "," << beta << "," << evap
-            << "," << use_two_opt << "," << evaluation_budget << "," << epochs;
-        return row.str();
-    };
-
-    auto log_result = [=](const std::string& name, const BenchmarkStats& stats) {
-        std::cout << "[ACO] " << name << " ants=" << ants
-                  << " alpha=" << alpha << " beta=" << beta << " evap=" << evap << " seed=" << base_seed
-                  << " repeats=" << repeats << " mode=" << mode_name(mode) << " budget=" << evaluation_budget << " epochs=" << epochs
-                  << " -> cost=" << stats.avg_cost << ", time=" << stats.avg_time << "s\n";
-    };
-
-    run_benchmark(
-        filename,
-        datasets,
-        "algorithm,mode,dataset,base_seed,repeats,ants,alpha,beta,evaporation,two_opt,evaluation_budget,epochs,stat,cost,avg_time_sec",
-        ACO_SEED_ID,
-        base_seed,
-        repeats,
-        [=](std::vector<City>& cities) { aco(cities, ants, alpha, beta, evap, epochs, use_two_opt); },
-        row_prefix,
-        log_result);
+std::size_t parse_size(const std::string& text, const std::string& name) {
+    return static_cast<std::size_t>(parse_int(text, name));
 }
 
-void run_tests_genetic(const std::string& filename,
-                       const std::vector<std::string>& datasets,
-                       double mutation_rate,
-                       std::size_t population_size,
-                       std::size_t evaluation_budget,
-                       std::uint32_t base_seed,
-                       int repeats,
-                       BenchmarkMode mode,
-                       bool use_two_opt) {
-    const std::size_t epochs = budgeted_iterations(evaluation_budget, population_size);
-
-    auto row_prefix = [=](const std::string& name) {
-        std::ostringstream row;
-        row << "GA," << mode_name(mode) << "," << name << "," << base_seed << "," << repeats << "," << mutation_rate << "," << population_size
-            << "," << use_two_opt << "," << evaluation_budget << "," << epochs;
-        return row.str();
-    };
-
-    auto log_result = [=](const std::string& name, const BenchmarkStats& stats) {
-        std::cout << "[GA] " << name << " pop=" << population_size << " mut=" << mutation_rate
-                  << " seed=" << base_seed << " repeats=" << repeats << " mode=" << mode_name(mode) << " budget=" << evaluation_budget << " epochs=" << epochs
-                  << " -> cost=" << stats.avg_cost << ", time=" << stats.avg_time << "s\n";
-    };
-
-    run_benchmark(
-        filename,
-        datasets,
-        "algorithm,mode,dataset,base_seed,repeats,mutation,population,two_opt,evaluation_budget,epochs,stat,cost,avg_time_sec",
-        GA_SEED_ID,
-        base_seed,
-        repeats,
-        [=](std::vector<City>& cities) { genetic_optimization(cities, mutation_rate, population_size, epochs, use_two_opt); },
-        row_prefix,
-        log_result);
+std::uint32_t parse_seed(const std::string& text) {
+    try {
+        std::size_t used = 0;
+        const unsigned long value = std::stoul(text, &used);
+        if (used != text.size() || value > std::numeric_limits<std::uint32_t>::max()) {
+            throw std::invalid_argument("bad");
+        }
+        return static_cast<std::uint32_t>(value);
+    } catch (const std::exception&) {
+        throw std::invalid_argument("seed must be an unsigned 32-bit integer");
+    }
 }
 
-void run_tests_sa(const std::string& filename,
-                  const std::vector<std::string>& datasets,
-                  double temp,
-                  double end_temp,
-                  double cool_rate,
-                  std::size_t evaluation_budget,
-                  std::uint32_t base_seed,
-                  int repeats,
-                  BenchmarkMode mode) {
-    const std::size_t epochs = evaluation_budget;
-
-    auto row_prefix = [=](const std::string& name) {
-        std::ostringstream row;
-        row << "SA," << mode_name(mode) << "," << name << "," << base_seed << "," << repeats << "," << temp << "," << end_temp << "," << cool_rate
-            << "," << evaluation_budget << "," << epochs;
-        return row.str();
-    };
-
-    auto log_result = [=](const std::string& name, const BenchmarkStats& stats) {
-        std::cout << "[SA] " << name << " temp=" << temp << " cool=" << cool_rate
-                  << " seed=" << base_seed << " repeats=" << repeats << " mode=" << mode_name(mode) << " budget=" << evaluation_budget << " epochs=" << epochs
-                  << " -> cost=" << stats.avg_cost << ", time=" << stats.avg_time << "s\n";
-    };
-
-    run_benchmark(
-        filename,
-        datasets,
-        "algorithm,mode,dataset,base_seed,repeats,temperature,end_temperature,cooling,evaluation_budget,epochs,stat,cost,avg_time_sec",
-        SA_SEED_ID,
-        base_seed,
-        repeats,
-        [=](std::vector<City>& cities) { sa_optimization(cities, temp, end_temp, cool_rate, epochs); },
-        row_prefix,
-        log_result);
+double parse_seconds(const std::string& text, const std::string& name) {
+    std::string value = text;
+    if (!value.empty() && (value.back() == 's' || value.back() == 'S')) {
+        value.pop_back();
+    }
+    try {
+        std::size_t used = 0;
+        const double seconds = std::stod(value, &used);
+        if (used != value.size() || !(seconds > 0.0)) {
+            throw std::invalid_argument("bad");
+        }
+        return seconds;
+    } catch (const std::exception&) {
+        throw std::invalid_argument(name + " must be a positive number of seconds, e.g. 10s");
+    }
 }
 
-std::vector<std::string> benchmark_datasets() {
-    return {
-        tsplib_test_file("eil51.tsp"),
-        tsplib_test_file("berlin52.tsp"),
-        tsplib_test_file("st70.tsp"),
-        tsplib_test_file("eil76.tsp"),
-        tsplib_test_file("kroA100.tsp"),
-        tsplib_test_file("kroB100.tsp")
-    };
+double parse_positive_double(const std::string& text, const std::string& name) {
+    try {
+        std::size_t used = 0;
+        const double value = std::stod(text, &used);
+        if (used != text.size() || !(value > 0.0)) {
+            throw std::invalid_argument("bad");
+        }
+        return value;
+    } catch (const std::exception&) {
+        throw std::invalid_argument(name + " must be a positive number");
+    }
 }
 
-void run_budget_benchmarks(const std::vector<std::string>& datasets, std::uint32_t base_seed) {
-    const double sa_start_temp = 10000.0;
-    const double sa_end_temp = 1e-3;
-    const double sa_cooling = cooling_rate_for_budget(sa_start_temp, sa_end_temp, BUDGET_EVALUATION_BUDGET);
-
-    run_tests_aco("aco_results_budget", datasets, 20, 1, 5, 0.5, BUDGET_EVALUATION_BUDGET, base_seed, BUDGET_BENCHMARK_REPEATS, BenchmarkMode::Budget, false);
-    run_tests_sa("sa_results_budget", datasets, sa_start_temp, sa_end_temp, sa_cooling, BUDGET_EVALUATION_BUDGET, base_seed, BUDGET_BENCHMARK_REPEATS, BenchmarkMode::Budget);
-    run_tests_genetic("ga_results_budget", datasets, 0.1, 100, BUDGET_EVALUATION_BUDGET, base_seed, BUDGET_BENCHMARK_REPEATS, BenchmarkMode::Budget, false);
+bool parse_bool_option(const std::string& text, const std::string& name) {
+    if (text == "true" || text == "1" || text == "yes" || text == "on") {
+        return true;
+    }
+    if (text == "false" || text == "0" || text == "no" || text == "off") {
+        return false;
+    }
+    throw std::invalid_argument(name + " must be true or false");
 }
 
-void run_full_benchmarks(const std::vector<std::string>& datasets, std::uint32_t base_seed) {
-    constexpr std::size_t full_sa_steps = 300000;
-    constexpr std::size_t full_aco_ants = 24;
-    constexpr std::size_t full_aco_epochs = 800;
-    constexpr std::size_t full_ga_population = 120;
-    constexpr std::size_t full_ga_generations = 500;
+void run_bench(const Args& args) {
+    BenchmarkConfig config;
+    config.benchmark_mode = require(args, "benchmark-mode");
+    if (config.benchmark_mode == "timed") {
+        reject_unknown_args(args, {"benchmark-mode", "set", "time-limit", "algorithm", "params",
+                                   "config", "two-opt", "label", "seed", "repeats"});
+    } else if (config.benchmark_mode == "stable") {
+        reject_unknown_args(args, {"benchmark-mode", "set", "algorithm", "params", "config", "two-opt",
+                                   "label", "seed", "repeats", "min-iters", "window", "epsilon",
+                                   "plateau-time", "max-iters"});
+    } else {
+        throw std::invalid_argument("--benchmark-mode must be timed or stable");
+    }
 
-    const double sa_start_temp = 10000.0;
-    const double sa_end_temp = 1e-3;
-    const double sa_cooling = cooling_rate_for_budget(sa_start_temp, sa_end_temp, full_sa_steps);
+    config.group = require(args, "set");
+    if (!is_dataset_group(config.group)) {
+        throw std::invalid_argument("--set must be small, medium, large or huge");
+    }
+    config.algorithm = get(args, "algorithm", "all");
+    config.params = get(args, "params", "default");
+    config.label = get(args, "label", "");
+    if (has(args, "two-opt")) {
+        config.two_opt_override = parse_bool_option(require(args, "two-opt"), "--two-opt");
+    }
+    if (config.params == "custom") {
+        config.custom_config = require(args, "config");
+    } else if (has(args, "config")) {
+        throw std::invalid_argument("--config is only valid with --params custom");
+    }
+    config.seed = parse_seed(get(args, "seed", "42"));
+    config.repeats = parse_int(get(args, "repeats", config.group == "huge" ? "1" : "3"), "repeats");
 
-    run_tests_aco("aco_results_full", datasets, full_aco_ants, 1.3, 5.0, 0.45, full_aco_ants * full_aco_epochs, base_seed, FULL_BENCHMARK_REPEATS, BenchmarkMode::Full, true);
-    run_tests_sa("sa_results_full", datasets, sa_start_temp, sa_end_temp, sa_cooling, full_sa_steps, base_seed, FULL_BENCHMARK_REPEATS, BenchmarkMode::Full);
-    run_tests_genetic("ga_results_full", datasets, 0.12, full_ga_population, full_ga_population * full_ga_generations, base_seed, FULL_BENCHMARK_REPEATS, BenchmarkMode::Full, true);
+    if (config.benchmark_mode == "timed") {
+        config.time_limit = parse_seconds(require(args, "time-limit"), "--time-limit");
+    } else {
+        config.min_iters = parse_size(get(args, "min-iters", "50"), "min-iters");
+        config.stable_window = parse_size(get(args, "window", "25"), "window");
+        config.improvement_eps = parse_positive_double(get(args, "epsilon", "0.0001"), "epsilon");
+        config.plateau_seconds = parse_seconds(get(args, "plateau-time", "60s"), "--plateau-time");
+        config.max_iters = parse_size(get(args, "max-iters", "100000"), "max-iters");
+    }
+
+    run_benchmark(config);
+}
+
 }
 
 int main(int argc, char* argv[]) {
-    MainConfig config;
     try {
-        config = parse_arguments(argc, argv);
+        const Args args = parse_args(argc, argv);
+        if (has(args, "help") || argc == 1) {
+            std::cout << USAGE;
+            return has(args, "help") ? 0 : 1;
+        }
+
+        run_bench(args);
     } catch (const std::exception& ex) {
-        std::cerr << ex.what() << "\n";
+        std::cerr << "error: " << ex.what() << "\n\n" << USAGE;
         return 1;
     }
-
-    std::cout << "Using base seed: " << config.base_seed << "\n";
-    std::cout << "Using benchmark mode: " << mode_name(config.mode) << "\n";
-
-    const auto datasets = benchmark_datasets();
-
-    if (config.mode == BenchmarkMode::Budget) {
-        run_budget_benchmarks(datasets, config.base_seed);
-    } else {
-        run_full_benchmarks(datasets, config.base_seed);
-    }
+    return 0;
 }
