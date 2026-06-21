@@ -414,8 +414,6 @@ For SA, cooling rate strongly changes the tradeoff between number of restarts an
 
 ![SA cooling profiles on large instances](docs/assets/sa_cooling_large.png)
 
-![SA cooling profiles on huge instances](docs/assets/sa_cooling_huge.png)
-
 Large set summary:
 
 | Profile | Cooling | Avg best gap | Best dataset gap | Worst dataset gap | Mean restarts |
@@ -423,13 +421,5 @@ Large set summary:
 | fast | 0.99999 | 17.10% | 5.77% | 32.03% | 393.67 |
 | slow/default | 0.999999 | 6.89% | 2.51% | 11.53% | 31.33 |
 | deep | 0.9999999 | 3.07% | 1.39% | 5.33% | 3.67 |
-
-Huge set summary:
-
-| Profile | Cooling | Avg best gap | Best dataset gap | Worst dataset gap | Mean restarts |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| fast | 0.99999 | 358.65% | 225.19% | 492.11% | 75.00 |
-| slow/default | 0.999999 | 73.30% | 40.27% | 106.33% | 9.50 |
-| deep | 0.9999999 | 1567.57% | 18.60% | 3116.54% | 1.50 |
 
 The deep SA profile works well on the large set because each annealing chain is much stronger. On the huge set the result splits by instance: on rl5915 the single deep chain still reaches the best gap of any profile (18.60%), but on fnl4461 it completes only one restart in 60 seconds and never cools enough to recover (3116.54%). Deep cooling therefore produces both the best and the worst single huge-instance result, which is why the default profile uses the middle cooling rate as a safer general baseline.
