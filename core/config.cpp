@@ -177,6 +177,7 @@ AcoParams aco_params_from(const ConfigMap& values) {
 
 std::string describe(const SaParams& params) {
     std::ostringstream text;
+    text << std::setprecision(10);
 
     text << "start_temp=" << params.start_temp << ";end_temp=" << params.end_temp
          << ";cooling=" << params.cooling << ";two_opt=" << bool_text(params.two_opt);
@@ -186,6 +187,7 @@ std::string describe(const SaParams& params) {
 
 std::string describe(const GaParams& params) {
     std::ostringstream text;
+    text << std::setprecision(10);
 
     text << "population=" << params.population << ";mutation=" << params.mutation
          << ";two_opt=" << bool_text(params.two_opt);
@@ -195,6 +197,7 @@ std::string describe(const GaParams& params) {
 
 std::string describe(const AcoParams& params) {
     std::ostringstream text;
+    text << std::setprecision(10);
 
     text << "ants=" << params.ants << ";alpha=" << params.alpha << ";beta=" << params.beta
          << ";evaporation=" << params.evaporation << ";two_opt=" << bool_text(params.two_opt);
