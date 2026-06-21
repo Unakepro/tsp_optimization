@@ -422,4 +422,4 @@ Large set summary:
 | slow/default | 0.999999 | 6.89% | 2.51% | 11.53% | 31.33 |
 | deep | 0.9999999 | 3.07% | 1.39% | 5.33% | 3.67 |
 
-The deep SA profile works well on the large set because each annealing chain is much stronger. On the huge set the result splits by instance: on rl5915 the single deep chain still reaches the best gap of any profile (18.60%), but on fnl4461 it completes only one restart in 60 seconds and never cools enough to recover (3116.54%). Deep cooling therefore produces both the best and the worst single huge-instance result, which is why the default profile uses the middle cooling rate as a safer general baseline.
+The deep SA profile works well on the large set because each annealing chain is much stronger.
