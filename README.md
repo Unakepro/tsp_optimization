@@ -35,7 +35,6 @@ configs/          default and custom algorithm parameters
 core/             TSPLIB parsing, distances, 2-opt, config, stop conditions
 docs/assets/      benchmark charts used by this README
 tests/            CTest-based correctness tests
-tools/            helper scripts for generated README assets
 tsplib/           TSPLIB instances and known best solutions
 ```
 
@@ -348,12 +347,6 @@ stable mode: min-iters=50, window=25, epsilon=0.0001, plateau-time=10s
 default SA: start_temp=10000, end_temp=0.001, cooling=0.999999, two_opt=false
 default GA: population=100, mutation=0.1, two_opt=true
 default ACO: ants=20, alpha=1, beta=5, evaporation=0.3, two_opt=true
-```
-
-Regenerate the README charts from the current CSV files (needs Python 3 with matplotlib, `pip install matplotlib`):
-
-```bash
-python3 tools/generate_readme_assets.py
 ```
 
 `Avg best gap` is the average, across datasets in the group, of each algorithm's best gap to the known best TSPLIB solution. `Worst best gap` is the worst dataset-level best gap in that group.
