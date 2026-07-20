@@ -186,7 +186,7 @@ The CSV output records the best and mean tour costs, standard deviation, gap to 
 
 Only TSPLIB `EUC_2D` instances are supported.
 
-## Engineering quality
+## Test coverage
 
 The tests cover:
 
@@ -264,13 +264,7 @@ default GA: population=100, mutation=0.1, two_opt=true
 default ACO: ants=20, alpha=1, beta=5, evaporation=0.3, two_opt=true
 ```
 
-The numbers are hardware-dependent. They show relative behavior and benchmark discipline, not universal timing or state-of-the-art performance.
-
-Regenerate the charts from the current CSV files with Python 3, NumPy, and Matplotlib:
-
-```bash
-python3 tools/generate_readme_assets.py
-```
+The numbers are hardware-dependent. They show relative behavior, not universal timing or state-of-the-art performance.
 
 </details>
 
